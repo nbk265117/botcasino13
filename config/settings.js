@@ -93,7 +93,9 @@ export const CONFIG = {
 
     // Market Structure
     STRUCTURE: {
-      SWING_LOOKBACK: 10,         // Candles to identify swings
+      // Swing lookback varies by timeframe for realistic detection
+      SWING_LOOKBACK: 5,          // Default for 5m/15m candles
+      SWING_LOOKBACK_HTF: 3,      // For 4H/1D candles (fewer candles available)
       BOS_CONFIRMATION_CANDLES: 2, // Candles to confirm BOS
       CHOCH_REQUIRES_FVG: true,   // CHoCH must have FVG
     },
@@ -118,9 +120,9 @@ export const CONFIG = {
   // HIGHER TIMEFRAME BIAS
   // ═══════════════════════════════════════════════════════════════════
   HTF_BIAS: {
-    TIMEFRAMES: ['4h', '1d', '1w'],
-    REQUIRE_ALL_ALIGNED: false,   // At least 2 of 3 must align
-    MIN_ALIGNED_COUNT: 2,
+    TIMEFRAMES: ['4h', '1d'],
+    REQUIRE_ALL_ALIGNED: false,   // At least 1 of 2 must have clear bias
+    MIN_ALIGNED_COUNT: 1,         // Relaxed: just need 1 TF with clear bias
 
     // Bias determination factors
     FACTORS: {

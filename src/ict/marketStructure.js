@@ -255,14 +255,23 @@ export class MarketStructure {
 
   /**
    * Get multi-timeframe bias alignment
+   * Uses appropriate lookback for each timeframe
    */
   getHTFBiasAlignment(timeframeData) {
     const biases = {};
     let bullishCount = 0;
     let bearishCount = 0;
 
+    // HTF timeframes need smaller lookback (fewer candles available)
+    const htfTimeframes = ['4h', '1d', '1w'];
+    const htfLookback = CONFIG.ICT.STRUCTURE.SWING_LOOKBACK_HTF || 3;
+
     for (const [tf, candles] of Object.entries(timeframeData)) {
-      const analysis = this.determineBias(candles);
+      // Use smaller lookback for HTF
+      const isHTF = htfTimeframes.includes(tf);
+      const lookback = isHTF ? htfLookback : this.swingLookback;
+
+      const analysis = this.determineBiasWithLookback(candles, lookback);
       biases[tf] = analysis;
 
       if (analysis.bias === 'BULLISH') bullishCount++;
@@ -279,6 +288,67 @@ export class MarketStructure {
       alignment: Math.max(bullishCount, bearishCount) / totalTFs,
       bullishCount,
       bearishCount
+    };
+  }
+
+  /**
+   * Determine bias with specific lookback
+   */
+  determineBiasWithLookback(candles, lookback) {
+    const { swingHighs, swingLows } = this.identifySwings(candles, lookback, true);
+
+    if (swingHighs.length < 2 || swingLows.length < 2) {
+      return { bias: 'NEUTRAL', confidence: 0, reason: `Insufficient swings (H:${swingHighs.length}, L:${swingLows.length})` };
+    }
+
+    // Get last 3-4 swings for analysis
+    const recentHighs = swingHighs.slice(-4);
+    const recentLows = swingLows.slice(-4);
+
+    // Count higher highs/lows vs lower highs/lows
+    let higherHighs = 0;
+    let lowerHighs = 0;
+    let higherLows = 0;
+    let lowerLows = 0;
+
+    for (let i = 1; i < recentHighs.length; i++) {
+      if (recentHighs[i].price > recentHighs[i - 1].price) higherHighs++;
+      else lowerHighs++;
+    }
+
+    for (let i = 1; i < recentLows.length; i++) {
+      if (recentLows[i].price > recentLows[i - 1].price) higherLows++;
+      else lowerLows++;
+    }
+
+    // Determine bias
+    const bullishScore = higherHighs + higherLows;
+    const bearishScore = lowerHighs + lowerLows;
+
+    if (bullishScore > bearishScore) {
+      return {
+        bias: 'BULLISH',
+        confidence: bullishScore / (bullishScore + bearishScore + 0.01),
+        reason: `HH:${higherHighs} HL:${higherLows}`,
+        lastSwingHigh: recentHighs[recentHighs.length - 1],
+        lastSwingLow: recentLows[recentLows.length - 1]
+      };
+    } else if (bearishScore > bullishScore) {
+      return {
+        bias: 'BEARISH',
+        confidence: bearishScore / (bullishScore + bearishScore + 0.01),
+        reason: `LH:${lowerHighs} LL:${lowerLows}`,
+        lastSwingHigh: recentHighs[recentHighs.length - 1],
+        lastSwingLow: recentLows[recentLows.length - 1]
+      };
+    }
+
+    return {
+      bias: 'NEUTRAL',
+      confidence: 0.5,
+      reason: 'No clear structure',
+      lastSwingHigh: recentHighs[recentHighs.length - 1],
+      lastSwingLow: recentLows[recentLows.length - 1]
     };
   }
 

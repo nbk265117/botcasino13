@@ -117,13 +117,13 @@ export class Backtester {
       '4h': (htfCandles['4h'] || []).filter(c => {
         const candleClose = new Date(c.timestamp + 4 * 60 * 60 * 1000); // 4h later
         return candleClose <= decisionTime;
-      }).slice(-50),
+      }).slice(-100),  // Keep more candles for proper swing detection
       '1d': (htfCandles['1d'] || []).filter(c => {
         // Daily candles - only use previous days, not current day
         const candleDate = new Date(c.timestamp).toISOString().split('T')[0];
         const decisionDate = decisionTime.toISOString().split('T')[0];
         return candleDate < decisionDate;
-      }).slice(-20)
+      }).slice(-60)    // Keep more candles for proper swing detection
     };
 
     // STEP 5: Analyze HTF bias with filtered data
@@ -170,7 +170,8 @@ export class Backtester {
     if (fvgEntry.valid) confluence += 1;
     if (hasSMT) confluence += 1.5;
 
-    if (confluence < 5) {
+    // Reduced threshold for more realistic trade frequency
+    if (confluence < 4) {
       return { traded: false, reason: `Low confluence: ${confluence}` };
     }
 
@@ -322,10 +323,11 @@ export class Backtester {
         results.totalDays++;
 
         // Get HTF context - ONLY completed candles before the day
+        // Use more candles for better swing detection
         const dayStart = candles[0].timestamp;
         const htfCandles = {
-          '4h': btc4h.filter(c => c.timestamp < dayStart).slice(-50),
-          '1d': btc1d.filter(c => c.timestamp < dayStart).slice(-20)
+          '4h': btc4h.filter(c => c.timestamp < dayStart).slice(-100), // More 4H candles
+          '1d': btc1d.filter(c => c.timestamp < dayStart).slice(-60)   // More daily candles
         };
 
         const ethCandles = ethDayGroups[day] || [];
