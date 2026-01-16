@@ -159,45 +159,70 @@ export class LiquidityAnalysis {
   }
 
   /**
-   * Detect liquidity sweep (stop hunt)
+   * Detect liquidity sweep (stop hunt) - NO LOOK-AHEAD VERSION
    * This is THE key signal - smart money grabbing liquidity before reversal
+   *
+   * CRITICAL: A sweep is only "confirmed" when we have enough candles AFTER it.
+   * In online mode, we can only detect sweeps that happened at least
+   * SWEEP_CONFIRMATION_CANDLES ago.
+   *
+   * @param {Array} candles - Price candles
+   * @param {boolean} onlineMode - If true, only return confirmed sweeps (no look-ahead)
    */
-  detectLiquiditySweep(candles) {
+  detectLiquiditySweep(candles, onlineMode = true) {
+    const confirmationNeeded = this.config.SWEEP_CONFIRMATION_CANDLES;
+
+    // Find liquidity pools from older data (exclude recent candles)
     const equalHighs = this.findEqualHighs(candles.slice(0, -10));
     const equalLows = this.findEqualLows(candles.slice(0, -10));
-    const recentCandles = candles.slice(-this.config.SWEEP_CONFIRMATION_CANDLES - 5);
 
     const sweeps = [];
 
+    // In online mode, we can only confirm sweeps up to (length - confirmationNeeded - 1)
+    // because we need `confirmationNeeded` candles AFTER the sweep
+    const maxSweepIndex = onlineMode
+      ? candles.length - confirmationNeeded - 1
+      : candles.length - 1;
+
+    // Only look at candles that could be sweep candles
+    // Start from recent history but leave room for confirmation
+    const startIndex = Math.max(0, candles.length - 20);
+
     // Check for buy-side liquidity sweep (price spiked above equal highs then rejected)
     for (const liqPool of equalHighs) {
-      for (let i = 0; i < recentCandles.length - this.config.SWEEP_CONFIRMATION_CANDLES; i++) {
-        const sweepCandle = recentCandles[i];
+      for (let i = startIndex; i <= maxSweepIndex; i++) {
+        const sweepCandle = candles[i];
 
         // Did this candle wick above the liquidity?
         if (sweepCandle.high > liqPool.price) {
           // Check if it rejected (closed below the level)
           const closedBelow = sweepCandle.close < liqPool.price;
           const wickAbove = sweepCandle.high - Math.max(sweepCandle.open, sweepCandle.close);
-          const bodySize = Math.abs(sweepCandle.close - sweepCandle.open);
+          const bodySize = Math.abs(sweepCandle.close - sweepCandle.open) || 0.01;
 
           // Strong rejection = long upper wick, small body, close below level
           if (closedBelow && wickAbove > bodySize * 0.5) {
-            // Confirm with subsequent candles
-            const confirmationCandles = recentCandles.slice(i + 1, i + 1 + this.config.SWEEP_CONFIRMATION_CANDLES);
-            const confirmed = confirmationCandles.every(c => c.close < liqPool.price);
+            // Confirm with subsequent candles (these exist because of maxSweepIndex limit)
+            const confirmationCandles = candles.slice(i + 1, i + 1 + confirmationNeeded);
 
-            if (confirmed) {
-              sweeps.push({
-                type: 'BUY_SIDE_SWEEP',
-                direction: 'BEARISH',  // Swept buy-side = expect bearish
-                liquidityPool: liqPool,
-                sweepCandle,
-                sweepPrice: sweepCandle.high,
-                confirmationCandles,
-                timestamp: sweepCandle.timestamp,
-                strength: liqPool.strength + (wickAbove / bodySize) * 10
-              });
+            // Only confirm if we have enough candles
+            if (confirmationCandles.length >= confirmationNeeded) {
+              const confirmed = confirmationCandles.every(c => c.close < liqPool.price);
+
+              if (confirmed) {
+                sweeps.push({
+                  type: 'BUY_SIDE_SWEEP',
+                  direction: 'BEARISH',  // Swept buy-side = expect bearish
+                  liquidityPool: liqPool,
+                  sweepCandle,
+                  sweepPrice: sweepCandle.high,
+                  confirmationCandles,
+                  timestamp: sweepCandle.timestamp,
+                  confirmedAt: confirmationCandles[confirmationCandles.length - 1].timestamp,
+                  strength: liqPool.strength + (wickAbove / bodySize) * 10,
+                  candlesSinceConfirmation: candles.length - 1 - (i + confirmationNeeded)
+                });
+              }
             }
           }
         }
@@ -206,29 +231,34 @@ export class LiquidityAnalysis {
 
     // Check for sell-side liquidity sweep (price spiked below equal lows then rejected)
     for (const liqPool of equalLows) {
-      for (let i = 0; i < recentCandles.length - this.config.SWEEP_CONFIRMATION_CANDLES; i++) {
-        const sweepCandle = recentCandles[i];
+      for (let i = startIndex; i <= maxSweepIndex; i++) {
+        const sweepCandle = candles[i];
 
         if (sweepCandle.low < liqPool.price) {
           const closedAbove = sweepCandle.close > liqPool.price;
           const wickBelow = Math.min(sweepCandle.open, sweepCandle.close) - sweepCandle.low;
-          const bodySize = Math.abs(sweepCandle.close - sweepCandle.open);
+          const bodySize = Math.abs(sweepCandle.close - sweepCandle.open) || 0.01;
 
           if (closedAbove && wickBelow > bodySize * 0.5) {
-            const confirmationCandles = recentCandles.slice(i + 1, i + 1 + this.config.SWEEP_CONFIRMATION_CANDLES);
-            const confirmed = confirmationCandles.every(c => c.close > liqPool.price);
+            const confirmationCandles = candles.slice(i + 1, i + 1 + confirmationNeeded);
 
-            if (confirmed) {
-              sweeps.push({
-                type: 'SELL_SIDE_SWEEP',
-                direction: 'BULLISH',  // Swept sell-side = expect bullish
-                liquidityPool: liqPool,
-                sweepCandle,
-                sweepPrice: sweepCandle.low,
-                confirmationCandles,
-                timestamp: sweepCandle.timestamp,
-                strength: liqPool.strength + (wickBelow / bodySize) * 10
-              });
+            if (confirmationCandles.length >= confirmationNeeded) {
+              const confirmed = confirmationCandles.every(c => c.close > liqPool.price);
+
+              if (confirmed) {
+                sweeps.push({
+                  type: 'SELL_SIDE_SWEEP',
+                  direction: 'BULLISH',  // Swept sell-side = expect bullish
+                  liquidityPool: liqPool,
+                  sweepCandle,
+                  sweepPrice: sweepCandle.low,
+                  confirmationCandles,
+                  timestamp: sweepCandle.timestamp,
+                  confirmedAt: confirmationCandles[confirmationCandles.length - 1].timestamp,
+                  strength: liqPool.strength + (wickBelow / bodySize) * 10,
+                  candlesSinceConfirmation: candles.length - 1 - (i + confirmationNeeded)
+                });
+              }
             }
           }
         }

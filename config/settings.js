@@ -276,6 +276,44 @@ export const CONFIG = {
   },
 
   // ═══════════════════════════════════════════════════════════════════
+  // BACKTEST SIMULATION PARAMETERS
+  // These make backtest more realistic by simulating execution costs
+  // ═══════════════════════════════════════════════════════════════════
+  BACKTEST: {
+    // Decision timing
+    DECISION_HOUR_UTC: 15,        // 3PM UTC - when to make daily decision
+
+    // Execution simulation
+    SLIPPAGE: {
+      ENABLED: true,
+      BASE_SLIPPAGE_PERCENT: 0.5,  // 0.5% base slippage on Polymarket
+      VARIABLE_SLIPPAGE: true,     // Add random component
+      MAX_SLIPPAGE_PERCENT: 2.0,   // Maximum slippage
+    },
+
+    // Fees simulation
+    FEES: {
+      ENABLED: true,
+      POLYMARKET_FEE_PERCENT: 0,   // Polymarket has 0 trading fees
+      GAS_FEE_USD: 0.50,           // ~$0.50 gas per trade on Polygon
+    },
+
+    // Market conditions simulation
+    MARKET_CONDITIONS: {
+      // Sometimes market odds are unfavorable
+      REJECT_BAD_ODDS: true,
+      MIN_ODDS_RATIO: 0.40,        // Don't buy if price > 60c (implied >60% probability)
+      MAX_ODDS_RATIO: 0.60,        // Don't buy if price < 40c (market strongly disagrees)
+    },
+
+    // Randomization for robustness testing
+    RANDOMIZATION: {
+      ENABLED: false,              // Add random noise to simulate real conditions
+      NOISE_PERCENT: 5,            // ±5% noise on signals
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
   // DATA SOURCES
   // ═══════════════════════════════════════════════════════════════════
   DATA: {

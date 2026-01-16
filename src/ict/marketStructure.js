@@ -16,27 +16,56 @@ export class MarketStructure {
   }
 
   /**
-   * Identify swing points in price data
+   * Identify swing points in price data (ONLINE VERSION - NO LOOK-AHEAD)
    * A swing high = high greater than N candles on each side
    * A swing low = low less than N candles on each side
+   *
+   * CRITICAL: In live trading, we can only CONFIRM a swing after `lookback`
+   * candles have passed. This version only returns CONFIRMED swings.
+   *
+   * @param {Array} candles - Price candles
+   * @param {number} lookback - Candles on each side to confirm swing
+   * @param {boolean} onlineMode - If true, only return confirmed swings (no look-ahead)
    */
-  identifySwings(candles, lookback = this.swingLookback) {
+  identifySwings(candles, lookback = this.swingLookback, onlineMode = true) {
     const swingHighs = [];
     const swingLows = [];
 
-    for (let i = lookback; i < candles.length - lookback; i++) {
+    // In online mode, we can only confirm swings up to (length - lookback - 1)
+    // because we need `lookback` candles AFTER the swing to confirm it
+    const maxIndex = onlineMode
+      ? candles.length - lookback - 1  // Can't confirm recent swings yet
+      : candles.length - lookback;      // Backtest mode (original behavior)
+
+    for (let i = lookback; i < maxIndex; i++) {
       const current = candles[i];
 
-      // Check for swing high
+      // Check for swing high - only look at PAST candles in online mode
       let isSwingHigh = true;
       let isSwingLow = true;
 
+      // Check left side (past) - always safe
       for (let j = 1; j <= lookback; j++) {
-        if (candles[i - j].high >= current.high || candles[i + j].high >= current.high) {
+        if (candles[i - j].high >= current.high) {
           isSwingHigh = false;
         }
-        if (candles[i - j].low <= current.low || candles[i + j].low <= current.low) {
+        if (candles[i - j].low <= current.low) {
           isSwingLow = false;
+        }
+      }
+
+      // Check right side (future relative to swing point)
+      // In online mode, these candles exist because we limited maxIndex
+      if (isSwingHigh || isSwingLow) {
+        for (let j = 1; j <= lookback; j++) {
+          if (i + j < candles.length) {
+            if (candles[i + j].high >= current.high) {
+              isSwingHigh = false;
+            }
+            if (candles[i + j].low <= current.low) {
+              isSwingLow = false;
+            }
+          }
         }
       }
 
@@ -45,7 +74,8 @@ export class MarketStructure {
           index: i,
           price: current.high,
           timestamp: current.timestamp,
-          candle: current
+          candle: current,
+          confirmedAt: candles[Math.min(i + lookback, candles.length - 1)].timestamp
         });
       }
 
@@ -54,7 +84,8 @@ export class MarketStructure {
           index: i,
           price: current.low,
           timestamp: current.timestamp,
-          candle: current
+          candle: current,
+          confirmedAt: candles[Math.min(i + lookback, candles.length - 1)].timestamp
         });
       }
     }

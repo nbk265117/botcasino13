@@ -46,19 +46,41 @@ export class SMTDivergence {
   }
 
   /**
-   * Identify swing highs in price data
+   * Identify swing highs in price data (ONLINE VERSION - NO LOOK-AHEAD)
+   *
+   * CRITICAL: We can only confirm a swing AFTER `lookback` candles have passed.
+   * This prevents look-ahead bias in backtesting.
+   *
+   * @param {Array} candles - Price candles
+   * @param {number} lookback - Candles needed on each side
+   * @param {boolean} onlineMode - If true, only return confirmed swings
    */
-  findSwingHighs(candles, lookback = 5) {
+  findSwingHighs(candles, lookback = 5, onlineMode = true) {
     const swings = [];
 
-    for (let i = lookback; i < candles.length - lookback; i++) {
+    // In online mode, can only confirm swings up to (length - lookback - 1)
+    const maxIndex = onlineMode
+      ? candles.length - lookback - 1
+      : candles.length - lookback;
+
+    for (let i = lookback; i < maxIndex; i++) {
       let isSwingHigh = true;
 
+      // Check left side (past)
       for (let j = 1; j <= lookback; j++) {
-        if (candles[i - j].high >= candles[i].high ||
-            candles[i + j].high >= candles[i].high) {
+        if (candles[i - j].high >= candles[i].high) {
           isSwingHigh = false;
           break;
+        }
+      }
+
+      // Check right side (these candles exist because we limited maxIndex)
+      if (isSwingHigh) {
+        for (let j = 1; j <= lookback; j++) {
+          if (i + j < candles.length && candles[i + j].high >= candles[i].high) {
+            isSwingHigh = false;
+            break;
+          }
         }
       }
 
@@ -66,7 +88,8 @@ export class SMTDivergence {
         swings.push({
           index: i,
           price: candles[i].high,
-          timestamp: candles[i].timestamp
+          timestamp: candles[i].timestamp,
+          confirmedAt: candles[Math.min(i + lookback, candles.length - 1)].timestamp
         });
       }
     }
@@ -75,19 +98,33 @@ export class SMTDivergence {
   }
 
   /**
-   * Identify swing lows in price data
+   * Identify swing lows in price data (ONLINE VERSION - NO LOOK-AHEAD)
    */
-  findSwingLows(candles, lookback = 5) {
+  findSwingLows(candles, lookback = 5, onlineMode = true) {
     const swings = [];
 
-    for (let i = lookback; i < candles.length - lookback; i++) {
+    const maxIndex = onlineMode
+      ? candles.length - lookback - 1
+      : candles.length - lookback;
+
+    for (let i = lookback; i < maxIndex; i++) {
       let isSwingLow = true;
 
+      // Check left side (past)
       for (let j = 1; j <= lookback; j++) {
-        if (candles[i - j].low <= candles[i].low ||
-            candles[i + j].low <= candles[i].low) {
+        if (candles[i - j].low <= candles[i].low) {
           isSwingLow = false;
           break;
+        }
+      }
+
+      // Check right side
+      if (isSwingLow) {
+        for (let j = 1; j <= lookback; j++) {
+          if (i + j < candles.length && candles[i + j].low <= candles[i].low) {
+            isSwingLow = false;
+            break;
+          }
         }
       }
 
@@ -95,7 +132,8 @@ export class SMTDivergence {
         swings.push({
           index: i,
           price: candles[i].low,
-          timestamp: candles[i].timestamp
+          timestamp: candles[i].timestamp,
+          confirmedAt: candles[Math.min(i + lookback, candles.length - 1)].timestamp
         });
       }
     }

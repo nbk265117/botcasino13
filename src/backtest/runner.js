@@ -72,25 +72,62 @@ export class Backtester {
   }
 
   /**
-   * Simulate a single day's trading decision
+   * Simulate a single day's trading decision (REALISTIC TIMING - NO LOOK-AHEAD)
+   *
+   * CRITICAL CHANGES TO PREVENT LOOK-AHEAD BIAS:
+   * 1. Decision is made at a SPECIFIC time (decisionHour)
+   * 2. Only candles BEFORE decision time are used for analysis
+   * 3. HTF candles are filtered to only include COMPLETED candles
+   * 4. Entry price is at decision time, not end of killzone
+   *
+   * @param {Array} dayCandles - All 5m candles for the day
+   * @param {Object} htfCandles - Higher timeframe candles
+   * @param {Array} ethDayCandles - ETH candles for SMT
+   * @param {number} decisionHour - UTC hour when decision is made (default: 15 = 3PM UTC)
    */
-  simulateDay(dayCandles, htfCandles, ethDayCandles) {
-    // Find killzone candles only
-    const killzoneCandles = dayCandles.filter(candle => {
-      const hour = new Date(candle.timestamp).getUTCHours();
-      // London: 7-10, NY AM: 13-16
-      return (hour >= 7 && hour <= 10) || (hour >= 13 && hour <= 16);
-    });
+  simulateDay(dayCandles, htfCandles, ethDayCandles, decisionHour = 15) {
+    // STEP 1: Find the decision point candle
+    const decisionTimestamp = dayCandles.find(c => {
+      const hour = new Date(c.timestamp).getUTCHours();
+      return hour >= decisionHour;
+    })?.timestamp;
 
-    if (killzoneCandles.length < 20) {
-      return { traded: false, reason: 'Insufficient killzone data' };
+    if (!decisionTimestamp) {
+      return { traded: false, reason: 'No candle at decision hour' };
     }
 
-    // Analyze HTF bias
-    const htfBias = this.marketStructure.getHTFBiasAlignment({
-      '4h': htfCandles['4h'] || [],
-      '1d': htfCandles['1d'] || []
+    // STEP 2: Only use candles BEFORE the decision point for analysis
+    const availableCandles = dayCandles.filter(c => c.timestamp <= decisionTimestamp);
+
+    // STEP 3: Filter killzone candles from available data only
+    const killzoneCandles = availableCandles.filter(candle => {
+      const hour = new Date(candle.timestamp).getUTCHours();
+      // London: 7-10, NY AM: 13-16 (but only up to decision hour)
+      return (hour >= 7 && hour <= 10) || (hour >= 13 && hour < decisionHour);
     });
+
+    if (killzoneCandles.length < 15) {
+      return { traded: false, reason: 'Insufficient killzone data before decision' };
+    }
+
+    // STEP 4: Filter HTF candles to only COMPLETED candles before decision
+    // A 4H candle is only complete if we're past its close time
+    const decisionTime = new Date(decisionTimestamp);
+    const filteredHTF = {
+      '4h': (htfCandles['4h'] || []).filter(c => {
+        const candleClose = new Date(c.timestamp + 4 * 60 * 60 * 1000); // 4h later
+        return candleClose <= decisionTime;
+      }).slice(-50),
+      '1d': (htfCandles['1d'] || []).filter(c => {
+        // Daily candles - only use previous days, not current day
+        const candleDate = new Date(c.timestamp).toISOString().split('T')[0];
+        const decisionDate = decisionTime.toISOString().split('T')[0];
+        return candleDate < decisionDate;
+      }).slice(-20)
+    };
+
+    // STEP 5: Analyze HTF bias with filtered data
+    const htfBias = this.marketStructure.getHTFBiasAlignment(filteredHTF);
 
     if (!htfBias.aligned || htfBias.overallBias === 'NEUTRAL') {
       return { traded: false, reason: 'No HTF alignment' };
@@ -98,14 +135,14 @@ export class Backtester {
 
     const expectedDirection = htfBias.overallBias;
 
-    // Check for liquidity sweep
+    // STEP 6: Check for liquidity sweep with available candles only
     const liquiditySweep = this.liquidity.hasRecentLiquiditySweep(killzoneCandles, expectedDirection);
 
     if (!liquiditySweep.swept) {
       return { traded: false, reason: 'No liquidity sweep' };
     }
 
-    // Check for valid entry model
+    // STEP 7: Check for valid entry model
     const fvgEntry = this.fvg.isAtFVGEntry(killzoneCandles, expectedDirection);
     const mmxmAnalysis = this.mmxm.analyzeMMXMCycle(killzoneCandles, expectedDirection);
 
@@ -113,14 +150,20 @@ export class Backtester {
       return { traded: false, reason: 'No valid entry model' };
     }
 
-    // SMT check (bonus)
+    // STEP 8: SMT check with aligned ETH candles
     let hasSMT = false;
-    if (ethDayCandles.length === killzoneCandles.length) {
-      const smtCheck = this.smt.checkSMTConfirmation(killzoneCandles, ethDayCandles, expectedDirection);
+    const ethAvailable = ethDayCandles.filter(c => c.timestamp <= decisionTimestamp);
+    const ethKillzone = ethAvailable.filter(candle => {
+      const hour = new Date(candle.timestamp).getUTCHours();
+      return (hour >= 7 && hour <= 10) || (hour >= 13 && hour < decisionHour);
+    });
+
+    if (ethKillzone.length === killzoneCandles.length) {
+      const smtCheck = this.smt.checkSMTConfirmation(killzoneCandles, ethKillzone, expectedDirection);
       hasSMT = smtCheck.confirmed;
     }
 
-    // Calculate confluence
+    // STEP 9: Calculate confluence
     let confluence = 0;
     if (htfBias.aligned) confluence += 2;
     if (liquiditySweep.swept) confluence += 2;
@@ -131,12 +174,15 @@ export class Backtester {
       return { traded: false, reason: `Low confluence: ${confluence}` };
     }
 
-    // TRADE SIGNAL - now check outcome
-    const entryPrice = killzoneCandles[killzoneCandles.length - 1].close;
+    // STEP 10: Entry price is at DECISION TIME (not end of day)
+    const entryCandle = availableCandles[availableCandles.length - 1];
+    const entryPrice = entryCandle.close;
+
+    // STEP 11: Outcome - did BTC close UP or DOWN vs daily open?
+    // This is the ONLY place we use future data (to determine if we won)
     const dayClose = dayCandles[dayCandles.length - 1].close;
     const dayOpen = dayCandles[0].open;
 
-    // For Polymarket: did BTC close UP or DOWN vs daily open?
     const actualDirection = dayClose > dayOpen ? 'BULLISH' : 'BEARISH';
     const isWin = actualDirection === expectedDirection;
 
@@ -146,23 +192,83 @@ export class Backtester {
       actual: actualDirection,
       isWin,
       entryPrice,
+      entryTime: new Date(entryCandle.timestamp).toISOString(),
+      decisionHour,
       dayOpen,
       dayClose,
       percentMove: ((dayClose - dayOpen) / dayOpen * 100).toFixed(2),
       confluence,
       model: mmxmAnalysis.tradeable ? 'MMXM' : 'FVG',
-      hasSMT
+      hasSMT,
+      candlesUsedForAnalysis: killzoneCandles.length
     };
   }
 
   /**
-   * Run full backtest
+   * Simulate execution costs (slippage + fees)
+   * Returns adjusted payout considering real-world costs
+   */
+  simulateExecution(tradeAmount, isWin) {
+    const slippageConfig = CONFIG.BACKTEST?.SLIPPAGE || {};
+    const feesConfig = CONFIG.BACKTEST?.FEES || {};
+
+    let adjustedAmount = tradeAmount;
+
+    // Apply slippage
+    if (slippageConfig.ENABLED) {
+      let slippage = slippageConfig.BASE_SLIPPAGE_PERCENT / 100;
+
+      if (slippageConfig.VARIABLE_SLIPPAGE) {
+        // Add random component (0 to 1x base slippage)
+        slippage += (Math.random() * slippageConfig.BASE_SLIPPAGE_PERCENT / 100);
+      }
+
+      // Cap at max slippage
+      slippage = Math.min(slippage, slippageConfig.MAX_SLIPPAGE_PERCENT / 100);
+
+      // Slippage always works against you
+      adjustedAmount *= (1 - slippage);
+    }
+
+    // Apply fees
+    if (feesConfig.ENABLED) {
+      // Percentage fee
+      if (feesConfig.POLYMARKET_FEE_PERCENT > 0) {
+        adjustedAmount *= (1 - feesConfig.POLYMARKET_FEE_PERCENT / 100);
+      }
+
+      // Fixed gas fee
+      if (feesConfig.GAS_FEE_USD > 0) {
+        adjustedAmount -= feesConfig.GAS_FEE_USD;
+      }
+    }
+
+    // If win, you get ~2x (minus costs). If lose, you get 0.
+    const payout = isWin ? adjustedAmount * 2 : 0;
+
+    return {
+      originalAmount: tradeAmount,
+      adjustedAmount,
+      payout,
+      profit: payout - tradeAmount,
+      slippageCost: tradeAmount - adjustedAmount,
+      effectiveReturn: isWin ? (payout / tradeAmount - 1) : -1
+    };
+  }
+
+  /**
+   * Run full backtest (BIAS-FREE VERSION)
    */
   async runBacktest(startDate, endDate, options = {}) {
+    const decisionHour = options.decisionHour || CONFIG.BACKTEST?.DECISION_HOUR_UTC || 15;
+
     console.log('═══════════════════════════════════════════════════════════════════');
-    console.log('                    ICT STRATEGY BACKTEST                          ');
+    console.log('              ICT STRATEGY BACKTEST (BIAS-FREE)                    ');
     console.log('═══════════════════════════════════════════════════════════════════');
     console.log(`Period: ${startDate} to ${endDate}`);
+    console.log(`Decision Hour: ${decisionHour}:00 UTC`);
+    console.log(`Slippage Simulation: ${CONFIG.BACKTEST?.SLIPPAGE?.ENABLED ? 'ON' : 'OFF'}`);
+    console.log(`Fee Simulation: ${CONFIG.BACKTEST?.FEES?.ENABLED ? 'ON' : 'OFF'}`);
     console.log('');
 
     const results = {
@@ -205,6 +311,8 @@ export class Backtester {
 
       let consecutiveWins = 0;
       let consecutiveLosses = 0;
+      let simulatedCapital = CONFIG.CHALLENGE.STARTING_CAPITAL;
+      let peakCapital = simulatedCapital;
 
       for (const [day, candles] of Object.entries(dayGroups)) {
         // Skip weekends
@@ -213,36 +321,55 @@ export class Backtester {
 
         results.totalDays++;
 
-        // Get HTF context
+        // Get HTF context - ONLY completed candles before the day
+        const dayStart = candles[0].timestamp;
         const htfCandles = {
-          '4h': btc4h.filter(c => c.timestamp < candles[candles.length - 1].timestamp).slice(-50),
-          '1d': btc1d.filter(c => c.timestamp < candles[candles.length - 1].timestamp).slice(-20)
+          '4h': btc4h.filter(c => c.timestamp < dayStart).slice(-50),
+          '1d': btc1d.filter(c => c.timestamp < dayStart).slice(-20)
         };
 
         const ethCandles = ethDayGroups[day] || [];
 
-        // Simulate trading decision
-        const result = this.simulateDay(candles, htfCandles, ethCandles);
+        // Simulate trading decision with explicit decision hour
+        const result = this.simulateDay(candles, htfCandles, ethCandles, decisionHour);
 
         if (result.traded) {
           results.tradedDays++;
-          results.trades.push({ day, ...result });
 
+          // Simulate execution costs
+          const execution = this.simulateExecution(simulatedCapital, result.isWin);
+
+          // Update capital
           if (result.isWin) {
+            simulatedCapital = execution.payout;
             results.wins++;
             consecutiveWins++;
             consecutiveLosses = 0;
             results.maxConsecutiveWins = Math.max(results.maxConsecutiveWins, consecutiveWins);
+            peakCapital = Math.max(peakCapital, simulatedCapital);
           } else {
+            simulatedCapital = CONFIG.CHALLENGE.STARTING_CAPITAL; // Reset on loss
             results.losses++;
             consecutiveLosses++;
             consecutiveWins = 0;
             results.maxConsecutiveLosses = Math.max(results.maxConsecutiveLosses, consecutiveLosses);
           }
+
+          results.trades.push({
+            day,
+            ...result,
+            execution,
+            capitalAfter: simulatedCapital,
+            consecutiveWinsAtTime: consecutiveWins
+          });
         } else {
           results.skippedReasons[result.reason] = (results.skippedReasons[result.reason] || 0) + 1;
         }
       }
+
+      // Store simulation results
+      results.simulatedCapital = simulatedCapital;
+      results.peakCapital = peakCapital;
 
       // Calculate final stats
       results.winRate = results.tradedDays > 0 ? results.wins / results.tradedDays : 0;
@@ -282,7 +409,7 @@ export class Backtester {
    */
   printResults(results) {
     console.log('\n═══════════════════════════════════════════════════════════════════');
-    console.log('                    BACKTEST RESULTS                               ');
+    console.log('              BACKTEST RESULTS (BIAS-FREE)                         ');
     console.log('═══════════════════════════════════════════════════════════════════');
     console.log('');
     console.log('OVERVIEW:');
@@ -299,11 +426,17 @@ export class Backtester {
     console.log(`  Max Consecutive Wins:    ${results.maxConsecutiveWins}`);
     console.log(`  Max Consecutive Losses:  ${results.maxConsecutiveLosses}`);
     console.log('');
+    console.log('CAPITAL SIMULATION:');
+    console.log(`  Starting Capital:        $${CONFIG.CHALLENGE.STARTING_CAPITAL}`);
+    console.log(`  Peak Capital Reached:    $${results.peakCapital?.toFixed(2) || 'N/A'}`);
+    console.log(`  Final Capital:           $${results.simulatedCapital?.toFixed(2) || 'N/A'}`);
+    console.log('');
     console.log('13-WIN CHALLENGE PROBABILITY:');
     console.log(`  P(13 consecutive wins):  ${(results.prob13Wins * 100).toFixed(4)}%`);
     console.log(`  Expected attempts:       ${Math.ceil(1 / results.prob13Wins)}`);
+    console.log(`  Expected cost:           $${(Math.ceil(1 / results.prob13Wins) * CONFIG.CHALLENGE.STARTING_CAPITAL).toFixed(0)}`);
     console.log('');
-    console.log('SKIP REASONS:');
+    console.log('SKIP REASONS (why trades were not taken):');
     for (const [reason, count] of Object.entries(results.skippedReasons)) {
       console.log(`  ${reason}: ${count}`);
     }
