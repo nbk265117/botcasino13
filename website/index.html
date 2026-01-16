@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Casino13 Bot - ICT Polymarket Trading</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <span class="logo-icon">🎰</span>
+                <span class="logo-text">Casino<span class="accent">13</span></span>
+            </div>
+            <div class="nav-menu" id="navMenu">
+                <a href="#accueil" class="nav-link active">Accueil</a>
+                <a href="#statistiques" class="nav-link">Statistiques</a>
+                <a href="#strategie" class="nav-link">Stratégie</a>
+                <a href="#pipeline" class="nav-link">Pipeline</a>
+                <a href="#croissance" class="nav-link">Croissance</a>
+            </div>
+            <div class="nav-toggle" id="navToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="accueil" class="hero">
+        <div class="hero-bg"></div>
+        <div class="container">
+            <div class="hero-badges">
+                <span class="badge badge-live">
+                    <span class="pulse"></span>
+                    Bot Actif
+                </span>
+                <span class="badge badge-version">v1.0.0</span>
+                <span class="badge badge-chain">Polymarket</span>
+            </div>
+            <h1 class="hero-title">
+                <span class="gradient-text">Casino13</span>
+                <br>ICT Trading Bot
+            </h1>
+            <p class="hero-subtitle">
+                Bot de trading automatisé basé sur les concepts ICT (Inner Circle Trader)
+                pour les marchés de prédiction BTC sur Polymarket.
+                <br><strong>Objectif: 13 wins consécutifs | $12 → $98,304</strong>
+            </p>
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <span class="hero-stat-value gradient-text">75.6%</span>
+                    <span class="hero-stat-label">Win Rate</span>
+                </div>
+                <div class="hero-stat">
+                    <span class="hero-stat-value gradient-text">13</span>
+                    <span class="hero-stat-label">Wins Requis</span>
+                </div>
+                <div class="hero-stat">
+                    <span class="hero-stat-value gradient-text">8192x</span>
+                    <span class="hero-stat-label">Multiplicateur</span>
+                </div>
+            </div>
+            <div class="hero-cta">
+                <a href="#statistiques" class="btn btn-primary">Voir les Stats</a>
+                <a href="#strategie" class="btn btn-secondary">Comprendre la Stratégie</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Statistics Section -->
+    <section id="statistiques" class="section stats-section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">Performance</span>
+                <h2 class="section-title">Statistiques du Bot</h2>
+                <p class="section-subtitle">Résultats du backtest Juin - Décembre 2024</p>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon green">📈</div>
+                    <div class="stat-value">75.6%</div>
+                    <div class="stat-label">Win Rate Global</div>
+                    <div class="stat-detail">34 wins / 11 losses</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon blue">🎯</div>
+                    <div class="stat-value">82.4%</div>
+                    <div class="stat-label">Win Rate FVG</div>
+                    <div class="stat-detail">Meilleur modèle d'entrée</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon purple">🔥</div>
+                    <div class="stat-value">7</div>
+                    <div class="stat-label">Max Win Streak</div>
+                    <div class="stat-detail">Série de victoires max</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon gold">💰</div>
+                    <div class="stat-value">2.61%</div>
+                    <div class="stat-label">P(13 wins)</div>
+                    <div class="stat-detail">~39 tentatives attendues</div>
+                </div>
+            </div>
+
+            <div class="stats-detail-grid">
+                <div class="detail-card">
+                    <h3>Performance par Modèle</h3>
+                    <div class="progress-item">
+                        <div class="progress-header">
+                            <span>FVG Displacement</span>
+                            <span class="progress-value">82.4%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill green" style="width: 82.4%"></div>
+                        </div>
+                    </div>
+                    <div class="progress-item">
+                        <div class="progress-header">
+                            <span>MMXM Model</span>
+                            <span class="progress-value">54.5%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill blue" style="width: 54.5%"></div>
+                        </div>
+                    </div>
+                    <div class="progress-item">
+                        <div class="progress-header">
+                            <span>Avec SMT Divergence</span>
+                            <span class="progress-value">100%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill gold" style="width: 100%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-card">
+                    <h3>Métriques Clés</h3>
+                    <div class="metric-list">
+                        <div class="metric-item">
+                            <span class="metric-label">Jours tradés</span>
+                            <span class="metric-value">45 / 124</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Fréquence</span>
+                            <span class="metric-value">36.3%</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Peak Capital</span>
+                            <span class="metric-value">$1,338.35</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Max Drawdown</span>
+                            <span class="metric-value">4 losses</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Strategy Section -->
+    <section id="strategie" class="section strategy-section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">ICT Concepts</span>
+                <h2 class="section-title">Stratégie de Trading</h2>
+                <p class="section-subtitle">Inner Circle Trader + External Data Confluence</p>
+            </div>
+
+            <div class="strategy-grid">
+                <div class="strategy-card">
+                    <div class="strategy-icon">🎯</div>
+                    <h3>Killzones</h3>
+                    <p>Trading uniquement pendant les sessions à haute probabilité</p>
+                    <ul class="strategy-list">
+                        <li>London: 07:00-10:00 UTC</li>
+                        <li>NY AM: 13:00-16:00 UTC</li>
+                        <li>Silver Bullet: Micro-fenêtres optimales</li>
+                    </ul>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-icon">💧</div>
+                    <h3>Liquidity Sweep</h3>
+                    <p>Détection des chasses aux stops par les institutions</p>
+                    <ul class="strategy-list">
+                        <li>Equal Highs/Lows detection</li>
+                        <li>Session High/Low sweeps</li>
+                        <li>Confirmation obligatoire</li>
+                    </ul>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-icon">📊</div>
+                    <h3>Market Structure</h3>
+                    <p>Analyse multi-timeframe pour le biais directionnel</p>
+                    <ul class="strategy-list">
+                        <li>HTF Bias (4H + Daily)</li>
+                        <li>Break of Structure (BOS)</li>
+                        <li>Change of Character (CHoCH)</li>
+                    </ul>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-icon">⚡</div>
+                    <h3>Fair Value Gap</h3>
+                    <p>Entrées sur les déséquilibres de prix institutionnels</p>
+                    <ul class="strategy-list">
+                        <li>FVG après displacement</li>
+                        <li>Premium/Discount zones</li>
+                        <li>82.4% win rate historique</li>
+                    </ul>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-icon">🔄</div>
+                    <h3>SMT Divergence</h3>
+                    <p>Confirmation BTC vs ETH pour les retournements</p>
+                    <ul class="strategy-list">
+                        <li>Divergence bullish/bearish</li>
+                        <li>Confirmation institutionnelle</li>
+                        <li>100% win rate avec SMT</li>
+                    </ul>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-icon">📰</div>
+                    <h3>External Data</h3>
+                    <p>Données externes pour confluence supplémentaire</p>
+                    <ul class="strategy-list">
+                        <li>News Sentiment (LunarCrush)</li>
+                        <li>ETF Flows (CoinGlass)</li>
+                        <li>Economic Calendar (Finnhub)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Confluence System -->
+            <div class="confluence-section">
+                <h3 class="confluence-title">Système de Confluence</h3>
+                <p class="confluence-subtitle">Minimum 7/10 points requis pour trader</p>
+                <div class="confluence-grid">
+                    <div class="confluence-item">
+                        <span class="confluence-points">+2.0</span>
+                        <span class="confluence-label">HTF Bias Aligned</span>
+                    </div>
+                    <div class="confluence-item">
+                        <span class="confluence-points">+2.0</span>
+                        <span class="confluence-label">Liquidity Swept</span>
+                    </div>
+                    <div class="confluence-item">
+                        <span class="confluence-points">+2.0</span>
+                        <span class="confluence-label">ETF Flows Aligned</span>
+                    </div>
+                    <div class="confluence-item">
+                        <span class="confluence-points">+1.5</span>
+                        <span class="confluence-label">News Sentiment</span>
+                    </div>
+                    <div class="confluence-item">
+                        <span class="confluence-points">+1.5</span>
+                        <span class="confluence-label">SMT Divergence</span>
+                    </div>
+                    <div class="confluence-item">
+                        <span class="confluence-points">+1.0</span>
+                        <span class="confluence-label">Killzone Active</span>
+                    </div>
+                    <div class="confluence-item">
+                        <span class="confluence-points">+1.0</span>
+                        <span class="confluence-label">FVG Present</span>
+                    </div>
+                    <div class="confluence-item">
+                        <span class="confluence-points">+1.0</span>
+                        <span class="confluence-label">Premium/Discount</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pipeline Section -->
+    <section id="pipeline" class="section pipeline-section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">Decision Flow</span>
+                <h2 class="section-title">Pipeline de Décision</h2>
+                <p class="section-subtitle">Chaque étape doit être validée avant de trader</p>
+            </div>
+
+            <div class="pipeline-flow">
+                <div class="pipeline-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Trading Day Check</h4>
+                        <p>Pas de weekend, pas de jours fériés</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>News Blackout</h4>
+                        <p>FOMC, CPI, NFP = NO TRADE</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Killzone Active</h4>
+                        <p>London ou NY AM session</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h4>Volatility Filter</h4>
+                        <p>ATR entre 0.5% et 3%</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <h4>HTF Bias Clear</h4>
+                        <p>4H + Daily alignment</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">6</div>
+                    <div class="step-content">
+                        <h4>External Data</h4>
+                        <p>ETF flows, sentiment check</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">7</div>
+                    <div class="step-content">
+                        <h4>Liquidity Swept</h4>
+                        <p>OBLIGATOIRE - pas de trade sans sweep</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">8</div>
+                    <div class="step-content">
+                        <h4>Entry Model Valid</h4>
+                        <p>FVG, MMXM, ou Judas Swing</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step">
+                    <div class="step-number">9</div>
+                    <div class="step-content">
+                        <h4>Confluence ≥ 7</h4>
+                        <p>Score minimum requis</p>
+                    </div>
+                    <div class="step-arrow">→</div>
+                </div>
+                <div class="pipeline-step final">
+                    <div class="step-number">✓</div>
+                    <div class="step-content">
+                        <h4>EXECUTE TRADE</h4>
+                        <p>100% ALL-IN sur Polymarket</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Growth Section -->
+    <section id="croissance" class="section growth-section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">Challenge</span>
+                <h2 class="section-title">Croissance du Capital</h2>
+                <p class="section-subtitle">$12 → $98,304 en 13 wins consécutifs</p>
+            </div>
+
+            <div class="growth-chart">
+                <div class="growth-bar" data-win="1" style="--height: 8%">
+                    <span class="growth-value">$24</span>
+                    <span class="growth-label">Win 1</span>
+                </div>
+                <div class="growth-bar" data-win="2" style="--height: 10%">
+                    <span class="growth-value">$48</span>
+                    <span class="growth-label">Win 2</span>
+                </div>
+                <div class="growth-bar" data-win="3" style="--height: 12%">
+                    <span class="growth-value">$96</span>
+                    <span class="growth-label">Win 3</span>
+                </div>
+                <div class="growth-bar" data-win="4" style="--height: 16%">
+                    <span class="growth-value">$192</span>
+                    <span class="growth-label">Win 4</span>
+                </div>
+                <div class="growth-bar" data-win="5" style="--height: 20%">
+                    <span class="growth-value">$384</span>
+                    <span class="growth-label">Win 5</span>
+                </div>
+                <div class="growth-bar" data-win="6" style="--height: 26%">
+                    <span class="growth-value">$768</span>
+                    <span class="growth-label">Win 6</span>
+                </div>
+                <div class="growth-bar" data-win="7" style="--height: 32%">
+                    <span class="growth-value">$1.5K</span>
+                    <span class="growth-label">Win 7</span>
+                </div>
+                <div class="growth-bar" data-win="8" style="--height: 40%">
+                    <span class="growth-value">$3K</span>
+                    <span class="growth-label">Win 8</span>
+                </div>
+                <div class="growth-bar" data-win="9" style="--height: 50%">
+                    <span class="growth-value">$6K</span>
+                    <span class="growth-label">Win 9</span>
+                </div>
+                <div class="growth-bar" data-win="10" style="--height: 60%">
+                    <span class="growth-value">$12K</span>
+                    <span class="growth-label">Win 10</span>
+                </div>
+                <div class="growth-bar" data-win="11" style="--height: 72%">
+                    <span class="growth-value">$24K</span>
+                    <span class="growth-label">Win 11</span>
+                </div>
+                <div class="growth-bar" data-win="12" style="--height: 85%">
+                    <span class="growth-value">$49K</span>
+                    <span class="growth-label">Win 12</span>
+                </div>
+                <div class="growth-bar final" data-win="13" style="--height: 100%">
+                    <span class="growth-value">$98K</span>
+                    <span class="growth-label">Win 13</span>
+                </div>
+            </div>
+
+            <div class="growth-stats">
+                <div class="growth-stat-card">
+                    <div class="growth-stat-icon">🎯</div>
+                    <div class="growth-stat-value">$12</div>
+                    <div class="growth-stat-label">Capital Initial</div>
+                </div>
+                <div class="growth-stat-card">
+                    <div class="growth-stat-icon">🏆</div>
+                    <div class="growth-stat-value">$98,304</div>
+                    <div class="growth-stat-label">Objectif Final</div>
+                </div>
+                <div class="growth-stat-card">
+                    <div class="growth-stat-icon">📈</div>
+                    <div class="growth-stat-value">8192x</div>
+                    <div class="growth-stat-label">Multiplicateur</div>
+                </div>
+                <div class="growth-stat-card">
+                    <div class="growth-stat-icon">🎰</div>
+                    <div class="growth-stat-value">2.61%</div>
+                    <div class="growth-stat-label">Probabilité/Tentative</div>
+                </div>
+            </div>
+
+            <div class="math-section">
+                <h3>Mathématiques du Challenge</h3>
+                <div class="math-formula">
+                    <code>P(13 wins) = 0.756<sup>13</sup> = 2.61%</code>
+                </div>
+                <div class="math-details">
+                    <div class="math-item">
+                        <span>Tentatives attendues:</span>
+                        <strong>~39</strong>
+                    </div>
+                    <div class="math-item">
+                        <span>Coût par tentative:</span>
+                        <strong>$12</strong>
+                    </div>
+                    <div class="math-item">
+                        <span>Investissement total attendu:</span>
+                        <strong>~$468</strong>
+                    </div>
+                    <div class="math-item">
+                        <span>ROI attendu:</span>
+                        <strong>+20,900%</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <span class="logo-icon">🎰</span>
+                    <span class="logo-text">Casino<span class="accent">13</span></span>
+                </div>
+                <div class="footer-links">
+                    <a href="#accueil">Accueil</a>
+                    <a href="#statistiques">Statistiques</a>
+                    <a href="#strategie">Stratégie</a>
+                    <a href="#pipeline">Pipeline</a>
+                    <a href="#croissance">Croissance</a>
+                </div>
+                <div class="footer-tech">
+                    <span>Powered by</span>
+                    <div class="tech-badges">
+                        <span class="tech-badge">ICT</span>
+                        <span class="tech-badge">Polymarket</span>
+                        <span class="tech-badge">Node.js</span>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>© 2024 Casino13 Bot - ICT Polymarket Trading System</p>
+                <p class="disclaimer">Trading comporte des risques. Performances passées ne garantissent pas les résultats futurs.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
