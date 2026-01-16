@@ -93,7 +93,7 @@ export class MMXM {
     const totalSize = sweepCandle.high - sweepCandle.low;
     const wickRatio = (totalSize - bodySize) / totalSize;
 
-    const hasStrongRejection = wickRatio > 0.6; // 60%+ wick = strong rejection
+    const hasStrongRejection = wickRatio > 0.5; // RELAXED: 50%+ wick = strong rejection (was 60%)
 
     return {
       detected: significantManipulation && hasStrongRejection,

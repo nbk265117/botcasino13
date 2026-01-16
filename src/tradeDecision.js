@@ -53,6 +53,10 @@ import {
 } from './ict/index.js';
 import { PriceDataFetcher } from './data/priceData.js';
 import { NewsFilter } from './filters/newsFilter.js';
+// NEW: External data sources
+import { NewsSentiment } from './data/newsSentiment.js';
+import { ETFFlows } from './data/etfFlows.js';
+import { EconomicCalendar } from './data/economicCalendar.js';
 
 export class TradeDecisionEngine {
   constructor() {
@@ -65,6 +69,11 @@ export class TradeDecisionEngine {
     this.killzones = new KillzoneDetector();
     this.priceData = new PriceDataFetcher();
     this.newsFilter = new NewsFilter();
+
+    // NEW: External data sources
+    this.newsSentiment = new NewsSentiment();
+    this.etfFlows = new ETFFlows();
+    this.economicCalendar = new EconomicCalendar();
 
     // State tracking
     this.tradesToday = 0;
@@ -160,6 +169,26 @@ export class TradeDecisionEngine {
       decision.direction = expectedDirection;
 
       // ─────────────────────────────────────────────────────────────────────
+      // STEP 6.5: EXTERNAL DATA ANALYSIS (News, ETF Flows, Economic)
+      // ─────────────────────────────────────────────────────────────────────
+      const externalData = await this.analyzeExternalData(expectedDirection);
+      decision.analysis.externalData = externalData;
+
+      // Check for economic calendar blackout (high-impact events)
+      if (externalData.economic?.canTrade === false) {
+        decision.reasons.push(`ECONOMIC EVENT BLACKOUT: ${externalData.economic.reason}`);
+        return decision;
+      }
+
+      // Check for ETF flow strong disagreement (optional block)
+      if (CONFIG.DATA_SOURCES?.ETF_FLOWS?.BLOCK_ON_STRONG_DISAGREEMENT &&
+          externalData.etf?.strongDisagreement) {
+        decision.reasons.push(`ETF FLOW DISAGREEMENT: ${externalData.etf.reason}`);
+        decision.reasons.push(`ETF Signal: ${externalData.etf.bias} vs Trade: ${expectedDirection}`);
+        return decision;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
       // STEP 7: LIQUIDITY SWEEP CHECK (MANDATORY)
       // ─────────────────────────────────────────────────────────────────────
       const btcCandles = marketData.btc.candles5m;
@@ -184,7 +213,7 @@ export class TradeDecisionEngine {
       }
 
       // ─────────────────────────────────────────────────────────────────────
-      // STEP 9: Calculate Confluence Score
+      // STEP 9: Calculate Confluence Score (including external data)
       // ─────────────────────────────────────────────────────────────────────
       const confluence = this.calculateConfluence({
         htfBias,
@@ -192,7 +221,8 @@ export class TradeDecisionEngine {
         liquiditySweep,
         entryModels,
         newsCheck,
-        volatility: marketData.volatility
+        volatility: marketData.volatility,
+        externalData  // NEW: Include external data in confluence
       }, btcCandles, marketData.eth.candles5m, expectedDirection);
 
       decision.confluenceScore = confluence.score;
@@ -400,6 +430,34 @@ export class TradeDecisionEngine {
       missingFactors.push('NEWS_CLEAR');
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // NEW: External Data Factors
+    // ─────────────────────────────────────────────────────────────────────
+
+    // News Sentiment Aligned
+    if (analysis.externalData?.sentiment?.aligned) {
+      score += factors.NEWS_SENTIMENT_ALIGNED || 1.5;
+      presentFactors.push(`SENTIMENT(${analysis.externalData.sentiment.bias})`);
+    } else if (analysis.externalData?.sentiment) {
+      missingFactors.push('NEWS_SENTIMENT');
+    }
+
+    // ETF Flows Aligned
+    if (analysis.externalData?.etf?.aligned) {
+      score += factors.ETF_FLOWS_ALIGNED || 2.0;
+      presentFactors.push(`ETF_FLOWS(${analysis.externalData.etf.bias})`);
+    } else if (analysis.externalData?.etf) {
+      missingFactors.push('ETF_FLOWS');
+    }
+
+    // Economic Bias Aligned
+    if (analysis.externalData?.economic?.aligned) {
+      score += factors.ECONOMIC_BIAS_ALIGNED || 1.0;
+      presentFactors.push(`ECONOMIC(${analysis.externalData.economic.bias})`);
+    } else if (analysis.externalData?.economic) {
+      missingFactors.push('ECONOMIC_BIAS');
+    }
+
     return {
       score: Math.round(score * 10) / 10,
       maxScore: Object.values(factors).reduce((a, b) => a + b, 0),
@@ -407,6 +465,64 @@ export class TradeDecisionEngine {
       missingFactors,
       isAPlus: score >= CONFIG.CONFLUENCE.A_PLUS_SCORE
     };
+  }
+
+  /**
+   * Analyze external data sources (News, ETF, Economic)
+   */
+  async analyzeExternalData(expectedDirection) {
+    const results = {};
+
+    // Fetch all external data in parallel
+    const [sentimentSignal, etfSignal, economicSignal] = await Promise.allSettled([
+      CONFIG.DATA_SOURCES?.NEWS_SENTIMENT?.ENABLED
+        ? this.newsSentiment.getSentimentSignal(expectedDirection)
+        : Promise.resolve(null),
+      CONFIG.DATA_SOURCES?.ETF_FLOWS?.ENABLED
+        ? this.etfFlows.getETFSignal(expectedDirection)
+        : Promise.resolve(null),
+      CONFIG.DATA_SOURCES?.ECONOMIC_CALENDAR?.ENABLED
+        ? this.economicCalendar.getEconomicSignal(expectedDirection)
+        : Promise.resolve(null)
+    ]);
+
+    // Process sentiment
+    if (sentimentSignal.status === 'fulfilled' && sentimentSignal.value) {
+      results.sentiment = sentimentSignal.value;
+    }
+
+    // Process ETF flows
+    if (etfSignal.status === 'fulfilled' && etfSignal.value) {
+      results.etf = etfSignal.value;
+    }
+
+    // Process economic calendar
+    if (economicSignal.status === 'fulfilled' && economicSignal.value) {
+      results.economic = economicSignal.value;
+    }
+
+    // Calculate aggregate external score
+    let externalBullish = 0;
+    let externalBearish = 0;
+
+    if (results.sentiment?.bias === 'BULLISH') externalBullish++;
+    if (results.sentiment?.bias === 'BEARISH') externalBearish++;
+    if (results.etf?.bias === 'BULLISH') externalBullish++;
+    if (results.etf?.bias === 'BEARISH') externalBearish++;
+    if (results.economic?.bias === 'BULLISH') externalBullish++;
+    if (results.economic?.bias === 'BEARISH') externalBearish++;
+
+    results.aggregate = {
+      bullishSignals: externalBullish,
+      bearishSignals: externalBearish,
+      overallBias: externalBullish > externalBearish ? 'BULLISH'
+                 : externalBearish > externalBullish ? 'BEARISH'
+                 : 'NEUTRAL',
+      alignedWithTrade: (expectedDirection === 'BULLISH' && externalBullish >= externalBearish) ||
+                       (expectedDirection === 'BEARISH' && externalBearish >= externalBullish)
+    };
+
+    return results;
   }
 
   /**

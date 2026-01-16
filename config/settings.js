@@ -62,11 +62,11 @@ export const CONFIG = {
   ICT: {
     // Fair Value Gap (FVG) Settings
     FVG: {
-      MIN_SIZE_PERCENT: 0.15,     // Minimum FVG size as % of price
-      MAX_SIZE_PERCENT: 1.5,      // Maximum (too large = manipulation)
-      LOOKBACK_CANDLES: 50,       // How far back to find FVGs
-      REQUIRE_DISPLACEMENT: true, // FVG must follow displacement
-      DISPLACEMENT_MIN_SIZE: 0.3, // Min displacement candle size %
+      MIN_SIZE_PERCENT: 0.10,     // RELAXED: Min FVG size (was 0.15)
+      MAX_SIZE_PERCENT: 2.0,      // RELAXED: Max FVG size (was 1.5)
+      LOOKBACK_CANDLES: 30,       // RELAXED: Lookback (was 50)
+      REQUIRE_DISPLACEMENT: false, // RELAXED: FVG doesn't require displacement
+      DISPLACEMENT_MIN_SIZE: 0.15, // RELAXED: Min displacement size (was 0.2)
     },
 
     // Order Block Settings
@@ -78,10 +78,11 @@ export const CONFIG = {
 
     // Liquidity Settings
     LIQUIDITY: {
-      EQUAL_HIGHS_LOWS_TOLERANCE: 0.05,  // % tolerance for "equal"
+      EQUAL_HIGHS_LOWS_TOLERANCE: 0.08,  // RELAXED: 0.08% tolerance for "equal" (was 0.05)
       SESSION_LOOKBACK_HOURS: 24,
-      SWEEP_CONFIRMATION_CANDLES: 3,     // Candles to confirm sweep
+      SWEEP_CONFIRMATION_CANDLES: 2,     // RELAXED: 2 candles to confirm (was 3)
       MIN_LIQUIDITY_POOL_TOUCHES: 2,     // Min touches to be valid pool
+      SWEEP_REQUIRED: false,             // Sweep as bonus
     },
 
     // Premium/Discount Zones
@@ -122,7 +123,8 @@ export const CONFIG = {
   HTF_BIAS: {
     TIMEFRAMES: ['4h', '1d'],
     REQUIRE_ALL_ALIGNED: false,   // At least 1 of 2 must have clear bias
-    MIN_ALIGNED_COUNT: 1,         // Relaxed: just need 1 TF with clear bias
+    MIN_ALIGNED_COUNT: 0,         // RELAXED: Accept even if no clear HTF bias
+    ALLOW_NEUTRAL_BIAS: true,     // NEW: Trade even with neutral HTF (use LTF direction)
 
     // Bias determination factors
     FACTORS: {
@@ -176,6 +178,9 @@ export const CONFIG = {
   // ENTRY MODELS (Pick ONE per trade)
   // ═══════════════════════════════════════════════════════════════════
   ENTRY_MODELS: {
+    // MMXM ONLY MODE: Only trade MMXM setups (75% win rate vs 50% FVG)
+    MMXM_ONLY: false,  // Set to false to allow both FVG and MMXM
+
     // Model 1: FVG Entry after Displacement
     FVG_DISPLACEMENT: {
       ENABLED: true,
@@ -226,10 +231,11 @@ export const CONFIG = {
   // CONFLUENCE SCORING
   // ═══════════════════════════════════════════════════════════════════
   CONFLUENCE: {
-    MIN_SCORE_TO_TRADE: 7,        // Out of 10
-    A_PLUS_SCORE: 9,              // Allows second daily trade
+    MIN_SCORE_TO_TRADE: 7,        // Out of ~15 (increased with new factors)
+    A_PLUS_SCORE: 10,             // Allows second daily trade
 
     FACTORS: {
+      // ICT Technical Factors
       HTF_BIAS_ALIGNED: 2,
       KILLZONE_ACTIVE: 1,
       LIQUIDITY_SWEPT: 2,
@@ -238,6 +244,10 @@ export const CONFIG = {
       SMT_DIVERGENCE: 1.5,
       PREMIUM_DISCOUNT_ZONE: 1,
       NEWS_CLEAR: 0.5,
+      // NEW: External Data Factors
+      NEWS_SENTIMENT_ALIGNED: 1.5,  // LunarCrush + CryptoNews sentiment
+      ETF_FLOWS_ALIGNED: 2.0,       // BTC ETF inflows/outflows
+      ECONOMIC_BIAS_ALIGNED: 1.0,   // CPI/FOMC/NFP interpretation
     }
   },
 
@@ -326,6 +336,46 @@ export const CONFIG = {
     },
     TIMEFRAMES: ['5m', '15m', '1h', '4h', '1d'],
     CANDLE_LIMIT: 500,
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EXTERNAL DATA SOURCES (News, ETF Flows, Economic Calendar)
+  // ═══════════════════════════════════════════════════════════════════
+  DATA_SOURCES: {
+    // News Sentiment Analysis
+    NEWS_SENTIMENT: {
+      ENABLED: true,
+      WEIGHT_IN_CONFLUENCE: 1.5,  // Add 1.5 points if aligned
+      // Thresholds for directional bias
+      BULLISH_THRESHOLD: 30,      // Score >= 30 = BULLISH
+      BEARISH_THRESHOLD: -30,     // Score <= -30 = BEARISH
+      // Sources
+      USE_LUNARCRUSH: true,
+      USE_CRYPTONEWS: true,
+      USE_FEAR_GREED: true,
+    },
+
+    // Bitcoin ETF Flows
+    ETF_FLOWS: {
+      ENABLED: true,
+      WEIGHT_IN_CONFLUENCE: 2.0,  // ETF flows are highly predictive
+      // Thresholds (in USD)
+      STRONG_INFLOW_THRESHOLD: 500_000_000,   // $500M = strong bullish
+      STRONG_OUTFLOW_THRESHOLD: -500_000_000, // -$500M = strong bearish
+      MODERATE_THRESHOLD: 100_000_000,        // $100M = moderate signal
+      // Block trade if ETF flow strongly contradicts
+      BLOCK_ON_STRONG_DISAGREEMENT: true,
+    },
+
+    // Economic Calendar
+    ECONOMIC_CALENDAR: {
+      ENABLED: true,
+      WEIGHT_IN_CONFLUENCE: 1.0,
+      // Use economic data for directional bias
+      USE_FOR_BIAS: true,
+      // Block trade during high-impact events (handled by newsFilter)
+      BLACKOUT_ENABLED: true,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════

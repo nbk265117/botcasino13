@@ -19,6 +19,7 @@ import cron from 'node-cron';
 import { TradeDecisionEngine } from './tradeDecision.js';
 import { PolymarketClient } from './polymarket/client.js';
 import { KillzoneDetector } from './ict/killzones.js';
+import { TelegramNotifier } from './notifications/telegram.js';
 import { CONFIG } from '../config/settings.js';
 
 dotenv.config();
@@ -28,6 +29,7 @@ class BotCasino13 {
     this.decisionEngine = new TradeDecisionEngine();
     this.polymarket = new PolymarketClient(process.env.PRIVATE_KEY);
     this.killzones = new KillzoneDetector();
+    this.telegram = new TelegramNotifier();
 
     // Challenge state
     this.state = {
@@ -36,7 +38,8 @@ class BotCasino13 {
       totalTrades: 0,
       tradeHistory: [],
       startTime: new Date().toISOString(),
-      challengeActive: true
+      challengeActive: true,
+      lastAnalysis: null
     };
   }
 
@@ -131,10 +134,26 @@ class BotCasino13 {
       // Execute (simulation mode for now)
       const result = await this.polymarket.executeOrder(order);
 
+      // Send Telegram alert for trade execution
+      if (result.executed || result.simulated) {
+        await this.telegram.sendTradeAlert({
+          action: decision.action,
+          model: decision.analysis?.entryModels?.model || 'ICT',
+          confluence: decision.confluenceScore,
+          confidence: decision.confidence,
+          amount: order.amount,
+          potentialPayout: order.potentialPayout,
+          wins: this.state.consecutiveWins,
+          capital: this.state.currentCapital,
+          market: market.question
+        });
+      }
+
       return result;
 
     } catch (error) {
       console.error('Trade execution error:', error.message);
+      await this.telegram.sendErrorAlert(error);
       return { executed: false, error: error.message };
     }
   }
@@ -142,7 +161,7 @@ class BotCasino13 {
   /**
    * Record trade result (for simulation/tracking)
    */
-  recordResult(isWin) {
+  async recordResult(isWin, direction = 'N/A') {
     if (isWin) {
       this.state.currentCapital *= 2;
       this.state.consecutiveWins++;
@@ -171,6 +190,14 @@ class BotCasino13 {
       capitalAfter: this.state.currentCapital,
       consecutiveWins: this.state.consecutiveWins
     });
+
+    // Send result alert to Telegram
+    await this.telegram.sendResultAlert({
+      isWin,
+      direction,
+      newCapital: this.state.currentCapital,
+      consecutiveWins: this.state.consecutiveWins
+    });
   }
 
   /**
@@ -182,6 +209,13 @@ class BotCasino13 {
     console.log('Starting bot in monitoring mode...');
     console.log('Will analyze during London (07:00-10:00 UTC) and NY (13:00-16:00 UTC) killzones.\n');
 
+    // Send startup notification
+    await this.telegram.sendStartupAlert({
+      version: '1.0.0',
+      mode: 'Production',
+      capital: this.state.currentCapital
+    });
+
     // Check immediately
     await this.checkAndTrade();
 
@@ -190,8 +224,45 @@ class BotCasino13 {
       await this.checkAndTrade();
     });
 
+    // Schedule hourly heartbeat
+    cron.schedule('0 * * * *', async () => {
+      await this.sendHeartbeat();
+    });
+
+    // Handle graceful shutdown
+    process.on('SIGTERM', async () => {
+      await this.telegram.sendShutdownAlert('SIGTERM received');
+      process.exit(0);
+    });
+
+    process.on('SIGINT', async () => {
+      await this.telegram.sendShutdownAlert('SIGINT received (Ctrl+C)');
+      process.exit(0);
+    });
+
     // Keep process alive
     console.log('Bot running. Press Ctrl+C to stop.\n');
+  }
+
+  /**
+   * Send heartbeat status to Telegram
+   */
+  async sendHeartbeat() {
+    const killzoneStatus = this.killzones.getTradingWindowStatus();
+    const nextKz = killzoneStatus.quality?.nextKillzone;
+
+    await this.telegram.sendHeartbeat({
+      running: true,
+      uptimeSeconds: (Date.now() - new Date(this.state.startTime).getTime()) / 1000,
+      memoryMB: process.memoryUsage().heapUsed / 1024 / 1024,
+      capital: this.state.currentCapital,
+      wins: this.state.consecutiveWins,
+      tradesToday: this.state.tradeHistory.filter(t =>
+        t.timestamp.startsWith(new Date().toISOString().split('T')[0])
+      ).length,
+      nextKillzone: nextKz ? `${nextKz.name} in ${nextKz.hoursUntil}h` : 'In session',
+      lastAnalysis: this.state.lastAnalysis
+    });
   }
 
   /**
@@ -215,6 +286,7 @@ class BotCasino13 {
 
     // In killzone - run analysis
     const analysis = await this.analyze();
+    this.state.lastAnalysis = new Date().toISOString();
 
     if (analysis && analysis.decision.action !== 'NO_TRADE') {
       const tradeResult = await this.executeTrade(analysis.decision);

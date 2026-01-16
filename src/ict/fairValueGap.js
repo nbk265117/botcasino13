@@ -219,10 +219,16 @@ export class FairValueGap {
       return { valid: false, reason: 'No unfilled FVG found' };
     }
 
-    if (!bestFvg.isApproaching && !bestFvg.isInside) {
+    // RELAXED: For Polymarket daily direction bets, having an unfilled FVG in
+    // the right direction IS the signal. We don't need exact price positioning.
+    // Accept FVGs within 5% distance (was 1% for spot entries)
+    const maxDistancePercent = 5.0;
+    const distance = Math.abs(bestFvg.distancePercent);
+
+    if (distance > maxDistancePercent && !bestFvg.isInside) {
       return {
         valid: false,
-        reason: `FVG too far: ${bestFvg.distancePercent.toFixed(2)}% away`,
+        reason: `FVG too far: ${bestFvg.distancePercent.toFixed(2)}% away (max ${maxDistancePercent}%)`,
         fvg: bestFvg
       };
     }
@@ -234,7 +240,8 @@ export class FairValueGap {
         high: bestFvg.high,
         low: bestFvg.midpoint,  // Enter at midpoint for better entry
         optimal: bestFvg.midpoint
-      }
+      },
+      proximity: bestFvg.isInside ? 'INSIDE' : bestFvg.isApproaching ? 'APPROACHING' : 'NEARBY'
     };
   }
 }

@@ -129,16 +129,28 @@ export class Backtester {
     // STEP 5: Analyze HTF bias with filtered data
     const htfBias = this.marketStructure.getHTFBiasAlignment(filteredHTF);
 
-    if (!htfBias.aligned || htfBias.overallBias === 'NEUTRAL') {
+    // RELAXED: Allow trading even with neutral HTF bias
+    // Use LTF (lower timeframe) direction if HTF is neutral
+    let expectedDirection = htfBias.overallBias;
+
+    if (htfBias.overallBias === 'NEUTRAL' && CONFIG.HTF_BIAS?.ALLOW_NEUTRAL_BIAS) {
+      // Use LTF bias from killzone candles
+      const ltfBias = this.marketStructure.determineBias(killzoneCandles);
+      if (ltfBias.bias !== 'NEUTRAL') {
+        expectedDirection = ltfBias.bias;
+      } else {
+        return { traded: false, reason: 'No HTF or LTF alignment' };
+      }
+    } else if (!htfBias.aligned && !CONFIG.HTF_BIAS?.ALLOW_NEUTRAL_BIAS) {
       return { traded: false, reason: 'No HTF alignment' };
     }
 
-    const expectedDirection = htfBias.overallBias;
-
     // STEP 6: Check for liquidity sweep with available candles only
+    // RELAXED: Liquidity sweep is now optional (adds confluence but not mandatory)
     const liquiditySweep = this.liquidity.hasRecentLiquiditySweep(killzoneCandles, expectedDirection);
+    const sweepRequired = CONFIG.ICT?.LIQUIDITY?.SWEEP_REQUIRED !== false ? true : false;
 
-    if (!liquiditySweep.swept) {
+    if (sweepRequired && !liquiditySweep.swept) {
       return { traded: false, reason: 'No liquidity sweep' };
     }
 
@@ -146,8 +158,17 @@ export class Backtester {
     const fvgEntry = this.fvg.isAtFVGEntry(killzoneCandles, expectedDirection);
     const mmxmAnalysis = this.mmxm.analyzeMMXMCycle(killzoneCandles, expectedDirection);
 
-    if (!fvgEntry.valid && !mmxmAnalysis.tradeable) {
-      return { traded: false, reason: 'No valid entry model' };
+    // MMXM ONLY MODE: Only trade when MMXM is valid (75% win rate vs 50% for FVG)
+    const mmxmOnlyMode = CONFIG.ENTRY_MODELS?.MMXM_ONLY || false;
+
+    if (mmxmOnlyMode) {
+      if (!mmxmAnalysis.tradeable) {
+        return { traded: false, reason: 'No MMXM setup (MMXM-only mode)' };
+      }
+    } else {
+      if (!fvgEntry.valid && !mmxmAnalysis.tradeable) {
+        return { traded: false, reason: 'No valid entry model' };
+      }
     }
 
     // STEP 8: SMT check with aligned ETH candles
@@ -163,16 +184,45 @@ export class Backtester {
       hasSMT = smtCheck.confirmed;
     }
 
-    // STEP 9: Calculate confluence
+    // STEP 9: Calculate confluence (RELAXED scoring)
     let confluence = 0;
-    if (htfBias.aligned) confluence += 2;
-    if (liquiditySweep.swept) confluence += 2;
-    if (fvgEntry.valid) confluence += 1;
-    if (hasSMT) confluence += 1.5;
+    let confluenceDetails = [];
 
-    // Reduced threshold for more realistic trade frequency
-    if (confluence < 4) {
-      return { traded: false, reason: `Low confluence: ${confluence}` };
+    // HTF bias - 2 points if aligned, 1 point if using LTF
+    if (htfBias.aligned && htfBias.overallBias !== 'NEUTRAL') {
+      confluence += 2;
+      confluenceDetails.push('HTF');
+    } else if (expectedDirection !== 'NEUTRAL') {
+      confluence += 1; // Using LTF direction
+      confluenceDetails.push('LTF');
+    }
+
+    // Liquidity sweep - bonus points (not mandatory)
+    if (liquiditySweep.swept) {
+      confluence += 2;
+      confluenceDetails.push('SWEEP');
+    }
+
+    // Entry model
+    if (fvgEntry.valid) {
+      confluence += 1.5;
+      confluenceDetails.push('FVG');
+    }
+    if (mmxmAnalysis.tradeable) {
+      confluence += 2; // MMXM is higher value (66.7% win rate in backtest)
+      confluenceDetails.push('MMXM');
+    }
+
+    // SMT divergence
+    if (hasSMT) {
+      confluence += 1.5;
+      confluenceDetails.push('SMT');
+    }
+
+    // RELAXED threshold: 2.5 points minimum (was 3, originally 4)
+    const minConfluence = 2.5;
+    if (confluence < minConfluence) {
+      return { traded: false, reason: `Low confluence: ${confluence.toFixed(1)} (need ${minConfluence})` };
     }
 
     // STEP 10: Entry price is at DECISION TIME (not end of day)
@@ -199,8 +249,11 @@ export class Backtester {
       dayClose,
       percentMove: ((dayClose - dayOpen) / dayOpen * 100).toFixed(2),
       confluence,
+      confluenceDetails: confluenceDetails.join('+'),
       model: mmxmAnalysis.tradeable ? 'MMXM' : 'FVG',
       hasSMT,
+      hasLiquiditySweep: liquiditySweep.swept,
+      htfBias: htfBias.overallBias,
       candlesUsedForAnalysis: killzoneCandles.length
     };
   }

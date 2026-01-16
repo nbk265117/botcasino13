@@ -32,32 +32,65 @@ export class PolymarketClient {
 
   /**
    * Search for Bitcoin Up/Down markets
+   * Uses the events endpoint with tag filtering for daily BTC markets
    */
   async findBTCMarkets() {
     try {
-      // Search for Bitcoin markets on Gamma API
-      const response = await this.httpClient.get(`${this.gammaUrl}/markets`, {
+      // Method 1: Search for BTC daily series events (most reliable)
+      const eventsResponse = await this.httpClient.get(`${this.gammaUrl}/events`, {
         params: {
           active: true,
           closed: false,
-          limit: 100
+          tag_slug: 'bitcoin',  // Use tag_slug instead of tag
+          limit: 50
         }
       });
 
-      const markets = response.data;
+      const events = eventsResponse.data || [];
 
-      // Filter for Bitcoin Up/Down daily markets
-      const btcMarkets = markets.filter(market => {
-        const question = market.question?.toLowerCase() || '';
-        const description = market.description?.toLowerCase() || '';
-
+      // Filter for "Up or Down" daily events
+      const btcDailyEvents = events.filter(event => {
+        const title = event.title?.toLowerCase() || '';
+        const slug = event.slug?.toLowerCase() || '';
         return (
-          (question.includes('bitcoin') || question.includes('btc')) &&
-          (question.includes('up or down') || question.includes('above') || question.includes('below'))
+          (title.includes('bitcoin') || title.includes('btc')) &&
+          (title.includes('up or down') || slug.includes('up-or-down'))
         );
       });
 
-      return btcMarkets.map(market => this.parseMarket(market));
+      // Extract markets from events
+      const markets = [];
+      for (const event of btcDailyEvents) {
+        if (event.markets && event.markets.length > 0) {
+          for (const market of event.markets) {
+            markets.push(this.parseMarket(market));
+          }
+        }
+      }
+
+      // Method 2: Fallback to direct market search if no events found
+      if (markets.length === 0) {
+        const marketsResponse = await this.httpClient.get(`${this.gammaUrl}/markets`, {
+          params: {
+            active: true,
+            closed: false,
+            limit: 200
+          }
+        });
+
+        const allMarkets = marketsResponse.data || [];
+        const btcMarkets = allMarkets.filter(market => {
+          const question = market.question?.toLowerCase() || '';
+          return (
+            (question.includes('bitcoin') || question.includes('btc')) &&
+            (question.includes('up or down') || question.includes('above') || question.includes('below'))
+          );
+        });
+
+        return btcMarkets.map(market => this.parseMarket(market));
+      }
+
+      return markets;
 
     } catch (error) {
       console.error('Error fetching markets:', error.message);
@@ -69,8 +102,21 @@ export class PolymarketClient {
    * Parse market data into standardized format
    */
   parseMarket(rawMarket) {
-    const outcomes = rawMarket.outcomes || ['Yes', 'No'];
-    const prices = rawMarket.outcomePrices || [0.5, 0.5];
+    // Parse outcomes and prices (may be JSON strings or arrays)
+    let outcomes = rawMarket.outcomes || ['Yes', 'No'];
+    let prices = rawMarket.outcomePrices || [0.5, 0.5];
+    let tokenIds = rawMarket.clobTokenIds || [];
+
+    // Parse JSON strings if needed
+    if (typeof outcomes === 'string') {
+      try { outcomes = JSON.parse(outcomes); } catch (e) { outcomes = ['Yes', 'No']; }
+    }
+    if (typeof prices === 'string') {
+      try { prices = JSON.parse(prices); } catch (e) { prices = [0.5, 0.5]; }
+    }
+    if (typeof tokenIds === 'string') {
+      try { tokenIds = JSON.parse(tokenIds); } catch (e) { tokenIds = []; }
+    }
 
     return {
       id: rawMarket.id,
@@ -80,23 +126,23 @@ export class PolymarketClient {
       endDate: rawMarket.endDate,
       endDateISO: new Date(rawMarket.endDate).toISOString(),
 
-      // Outcomes
+      // Outcomes (map Up/Down to yes/no for consistency)
       outcomes: {
         yes: {
           token: outcomes[0],
           price: parseFloat(prices[0]),
-          tokenId: rawMarket.clobTokenIds?.[0]
+          tokenId: tokenIds[0]
         },
         no: {
           token: outcomes[1],
           price: parseFloat(prices[1]),
-          tokenId: rawMarket.clobTokenIds?.[1]
+          tokenId: tokenIds[1]
         }
       },
 
       // Liquidity info
-      volume: rawMarket.volume,
-      liquidity: rawMarket.liquidity,
+      volume: parseFloat(rawMarket.volume) || 0,
+      liquidity: parseFloat(rawMarket.liquidity) || 0,
 
       // Time info
       hoursUntilExpiry: this.calculateHoursUntilExpiry(rawMarket.endDate),
@@ -133,12 +179,60 @@ export class PolymarketClient {
    * Find the best BTC market for today
    */
   async findTodaysBTCMarket() {
+    // Method 1: Try direct slug search for today and tomorrow's daily markets
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const formatDate = (d) => {
+      const months = ['january', 'february', 'march', 'april', 'may', 'june',
+                      'july', 'august', 'september', 'october', 'november', 'december'];
+      return `${months[d.getMonth()]}-${d.getDate()}`;
+    };
+
+    const slugsToTry = [
+      `bitcoin-up-or-down-on-${formatDate(tomorrow)}`,
+      `bitcoin-up-or-down-on-${formatDate(today)}`,
+    ];
+
+    for (const slug of slugsToTry) {
+      try {
+        const response = await this.httpClient.get(`${this.gammaUrl}/events`, {
+          params: { slug }
+        });
+
+        const events = response.data || [];
+        if (events.length > 0 && events[0].markets?.length > 0) {
+          const market = this.parseMarket(events[0].markets[0]);
+          // Override isTradeable based on actual market data
+          market.isTradeable = events[0].markets[0].acceptingOrders !== false &&
+                               !events[0].closed &&
+                               events[0].active;
+
+          if (market.isTradeable && market.hoursUntilExpiry > 0) {
+            return {
+              found: true,
+              market,
+              allMarkets: [market],
+              source: 'slug-search'
+            };
+          }
+        }
+      } catch (e) {
+        // Slug not found, continue
+      }
+    }
+
+    // Method 2: Fall back to tag-based search
     const markets = await this.findBTCMarkets();
 
     // Find daily "Up or Down" market for today/tomorrow
     const dailyMarkets = markets.filter(m => {
       const question = m.question.toLowerCase();
-      return question.includes('up or down') && m.isTradeable;
+      // Include markets with positive hours until expiry
+      return question.includes('up or down') &&
+             (m.isTradeable || m.hoursUntilExpiry > 0) &&
+             m.hoursUntilExpiry < 48; // Within next 48 hours
     });
 
     if (dailyMarkets.length === 0) {
@@ -148,7 +242,7 @@ export class PolymarketClient {
       };
     }
 
-    // Sort by hours until expiry (prefer closer to optimal window)
+    // Sort by hours until expiry (prefer closer to optimal window: 4-20 hours)
     dailyMarkets.sort((a, b) => {
       const aOptimal = Math.abs(a.hoursUntilExpiry - 12);
       const bOptimal = Math.abs(b.hoursUntilExpiry - 12);
