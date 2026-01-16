@@ -1,0 +1,26 @@
+{
+  "name": "botcasino13",
+  "version": "1.0.0",
+  "description": "ICT-based Polymarket BTC Direction Trading Bot - 13 Win Challenge",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "backtest": "node src/backtest/runner.js",
+    "analyze": "node src/analyze.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "ccxt": "^4.2.0",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.9.0",
+    "node-cron": "^3.0.3",
+    "technicalindicators": "^3.1.0",
+    "winston": "^3.11.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
