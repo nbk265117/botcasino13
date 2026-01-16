@@ -125,11 +125,13 @@ export class MultiAssetBacktester {
       return { traded: false, reason: 'No HTF alignment' };
     }
 
-    // Liquidity sweep
+    // Liquidity sweep - BIAS-FREE: Now OPTIONAL (adds confluence but doesn't block)
     const liquiditySweep = this.liquidity.hasRecentLiquiditySweep(killzoneCandles, expectedDirection);
-    const sweepRequired = CONFIG.ICT?.LIQUIDITY?.SWEEP_REQUIRED !== false;
-    if (sweepRequired && !liquiditySweep.swept) {
-      return { traded: false, reason: 'No liquidity sweep' };
+
+    // SWEEP IS NOW OPTIONAL - Set SWEEP_REQUIRED_STRICT: true to require (not recommended)
+    const sweepRequiredStrict = CONFIG.ICT?.LIQUIDITY?.SWEEP_REQUIRED_STRICT || false;
+    if (sweepRequiredStrict && !liquiditySweep.swept) {
+      return { traded: false, reason: 'No liquidity sweep (strict mode)' };
     }
 
     // Entry model validation - FVG REQUIRED (better win rate than MMXM alone)
@@ -213,9 +215,23 @@ export class MultiAssetBacktester {
       confluenceDetails.push('PD_ZONE');
     }
 
-    // Entry and outcome
-    const entryCandle = availableCandles[availableCandles.length - 1];
-    const entryPrice = entryCandle.close;
+    // Entry and outcome - BIAS-FREE VERSION
+    // CRITICAL FIX: At decision time, we can't trade at the CLOSE price
+    // We trade at the OPEN of the NEXT candle.
+    const decisionCandle = availableCandles[availableCandles.length - 1];
+    const nextCandleIndex = dayCandles.findIndex(c => c.timestamp > decisionCandle.timestamp);
+
+    let entryPrice;
+    let entryCandle;
+
+    if (nextCandleIndex !== -1 && nextCandleIndex < dayCandles.length) {
+      entryCandle = dayCandles[nextCandleIndex];
+      entryPrice = entryCandle.open; // OPEN of next candle = realistic entry
+    } else {
+      entryCandle = decisionCandle;
+      entryPrice = decisionCandle.close; // Fallback
+    }
+
     const dayClose = dayCandles[dayCandles.length - 1].close;
     const dayOpen = dayCandles[0].open;
 
@@ -289,11 +305,22 @@ export class MultiAssetBacktester {
       // Skip weekends
       if (dayOfWeek === 0 || dayOfWeek === 6) continue;
 
-      // Skip Friday - 0% win rate
-      if (CONFIG.KILLZONES?.DAY_FILTER?.SKIP_FRIDAY && dayOfWeek === 5) continue;
+      // SURVIVORSHIP BIAS WARNING:
+      // The day filters below were based on backtest results.
+      // Using these in production is SURVIVORSHIP BIAS - you're filtering
+      // based on past performance which may not repeat.
+      //
+      // DISABLED BY DEFAULT - set BACKTEST_MODE_DAY_FILTER: true in config
+      // to enable for analysis purposes only.
+      const allowDayFilter = CONFIG.KILLZONES?.DAY_FILTER?.BACKTEST_MODE_DAY_FILTER || false;
 
-      // Skip Thursday - 28% win rate in 2025
-      if (CONFIG.KILLZONES?.DAY_FILTER?.SKIP_THURSDAY && dayOfWeek === 4) continue;
+      if (allowDayFilter) {
+        // Skip Friday - historical 0% win rate (USE WITH CAUTION)
+        if (CONFIG.KILLZONES?.DAY_FILTER?.SKIP_FRIDAY && dayOfWeek === 5) continue;
+
+        // Skip Thursday - historical 28% win rate (USE WITH CAUTION)
+        if (CONFIG.KILLZONES?.DAY_FILTER?.SKIP_THURSDAY && dayOfWeek === 4) continue;
+      }
 
       results.totalDays++;
 

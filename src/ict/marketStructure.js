@@ -157,12 +157,16 @@ export class MarketStructure {
   }
 
   /**
-   * Detect Break of Structure (BOS)
+   * Detect Break of Structure (BOS) - BIAS-FREE VERSION
    * BOS = price breaks previous swing in direction of trend (continuation)
+   *
+   * CRITICAL FIX: Exclude current candle from break detection because
+   * we don't know its final high/low at decision time.
    */
   detectBOS(candles) {
-    const { swingHighs, swingLows } = this.identifySwings(candles);
-    const recentCandles = candles.slice(-10);
+    const { swingHighs, swingLows } = this.identifySwings(candles, this.swingLookback, true);
+    // BIAS FIX: Exclude current candle (-1) from recent check
+    const recentCandles = candles.slice(-11, -1);
 
     const bosSignals = [];
 
@@ -205,14 +209,17 @@ export class MarketStructure {
   }
 
   /**
-   * Detect Change of Character (CHoCH)
+   * Detect Change of Character (CHoCH) - BIAS-FREE VERSION
    * CHoCH = first break against the trend (potential reversal)
    * In uptrend: first lower low
    * In downtrend: first higher high
+   *
+   * CRITICAL FIX: Use online mode for swing detection.
    */
   detectCHoCH(candles) {
     const bias = this.determineBias(candles.slice(0, -20)); // Use older data for established trend
-    const { swingHighs, swingLows } = this.identifySwings(candles);
+    // BIAS FIX: Use online mode for swing detection
+    const { swingHighs, swingLows } = this.identifySwings(candles, this.swingLookback, true);
 
     if (bias.bias === 'NEUTRAL') return null;
 
@@ -353,17 +360,38 @@ export class MarketStructure {
   }
 
   /**
-   * Calculate premium/discount zones
+   * Calculate premium/discount zones (BIAS-FREE VERSION)
+   *
+   * CRITICAL FIX: We exclude the CURRENT (last) candle from high/low calculation
+   * because at decision time, we don't know its final high/low yet.
+   * We only use COMPLETED candles for the range calculation.
    */
   getPremiumDiscountZone(candles, lookback = 50) {
-    const recentCandles = candles.slice(-lookback);
+    // BIAS FIX: Exclude the last candle (current/incomplete) from range calculation
+    // Use candles from -lookback-1 to -1 (excluding the last one)
+    const completedCandles = candles.slice(-(lookback + 1), -1);
 
-    const high = Math.max(...recentCandles.map(c => c.high));
-    const low = Math.min(...recentCandles.map(c => c.low));
+    if (completedCandles.length < 10) {
+      // Not enough data, return neutral
+      return {
+        zone: 'NEUTRAL',
+        position: 0.5,
+        high: 0,
+        low: 0,
+        equilibrium: 0,
+        currentPrice: candles[candles.length - 1]?.close || 0,
+        fibLevels: {}
+      };
+    }
+
+    // Calculate range from COMPLETED candles only
+    const high = Math.max(...completedCandles.map(c => c.high));
+    const low = Math.min(...completedCandles.map(c => c.low));
     const range = high - low;
 
-    const currentPrice = candles[candles.length - 1].close;
-    const position = (currentPrice - low) / range;
+    // Use the OPEN of the current candle (known at decision time) instead of close
+    const currentPrice = candles[candles.length - 1].open;
+    const position = range > 0 ? (currentPrice - low) / range : 0.5;
 
     const premiumThreshold = CONFIG.ICT.PREMIUM_DISCOUNT.PREMIUM_THRESHOLD;
     const discountThreshold = CONFIG.ICT.PREMIUM_DISCOUNT.DISCOUNT_THRESHOLD;

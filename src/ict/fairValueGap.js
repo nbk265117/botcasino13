@@ -15,18 +15,29 @@ export class FairValueGap {
   }
 
   /**
-   * Detect all Fair Value Gaps in price data
+   * Detect all Fair Value Gaps in price data (BIAS-FREE VERSION)
+   *
+   * CRITICAL FIX: We need 3 COMPLETED candles to confirm an FVG.
+   * The last candle (current) is excluded because we don't know its final high/low.
+   * An FVG is only valid when candle3 has CLOSED.
+   *
+   * @param {Array} candles - Price candles
+   * @param {boolean} onlineMode - If true, exclude current candle (default: true)
    */
-  detectFVGs(candles) {
+  detectFVGs(candles, onlineMode = true) {
     const fvgs = {
       bullish: [],
       bearish: []
     };
 
-    for (let i = 2; i < candles.length; i++) {
+    // BIAS FIX: In online mode, stop at candles.length - 1
+    // because the last candle hasn't closed yet
+    const maxIndex = onlineMode ? candles.length - 1 : candles.length;
+
+    for (let i = 2; i < maxIndex; i++) {
       const candle1 = candles[i - 2];
       const candle2 = candles[i - 1]; // The displacement candle
-      const candle3 = candles[i];
+      const candle3 = candles[i];     // Must be COMPLETED in online mode
 
       // Bullish FVG: Gap between candle 1 low and candle 3 high
       // (candle 2 moved up so fast it left a gap)
@@ -96,12 +107,17 @@ export class FairValueGap {
   }
 
   /**
-   * Find unfilled FVGs that price might return to
+   * Find unfilled FVGs that price might return to (BIAS-FREE VERSION)
+   *
+   * CRITICAL FIX: Use OPEN price of current candle (known at decision time)
+   * instead of CLOSE (unknown until candle completes)
    */
   findUnfilledFVGs(candles) {
-    const allFvgs = this.detectFVGs(candles.slice(0, -10)); // Exclude recent candles
-    const recentCandles = candles.slice(-10);
-    const currentPrice = candles[candles.length - 1].close;
+    // Detect FVGs excluding the last 10 + current candle for safety
+    const allFvgs = this.detectFVGs(candles.slice(0, -10), true);
+    const recentCandles = candles.slice(-10, -1); // Exclude current candle
+    // BIAS FIX: Use OPEN of current candle (known at decision time)
+    const currentPrice = candles[candles.length - 1].open;
 
     const unfilled = {
       bullish: [],
@@ -109,12 +125,15 @@ export class FairValueGap {
     };
 
     // Check each bullish FVG
+    // BIAS FIX: Only check COMPLETED candles (exclude current)
+    const maxCheckIndex = candles.length - 1;
+
     for (const fvg of allFvgs.bullish) {
       let filled = false;
       let partiallyFilled = false;
 
-      // Check if any subsequent candle filled the gap
-      for (let i = fvg.index + 1; i < candles.length; i++) {
+      // Check if any subsequent COMPLETED candle filled the gap
+      for (let i = fvg.index + 1; i < maxCheckIndex; i++) {
         const candle = candles[i];
         if (candle.low <= fvg.low) {
           filled = true;
@@ -141,11 +160,12 @@ export class FairValueGap {
     }
 
     // Check each bearish FVG
+    // BIAS FIX: Only check COMPLETED candles (exclude current)
     for (const fvg of allFvgs.bearish) {
       let filled = false;
       let partiallyFilled = false;
 
-      for (let i = fvg.index + 1; i < candles.length; i++) {
+      for (let i = fvg.index + 1; i < maxCheckIndex; i++) {
         const candle = candles[i];
         if (candle.high >= fvg.high) {
           filled = true;

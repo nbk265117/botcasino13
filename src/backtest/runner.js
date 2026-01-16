@@ -74,18 +74,20 @@ export class Backtester {
   /**
    * Simulate a single day's trading decision (REALISTIC TIMING - NO LOOK-AHEAD)
    *
+   * ETH13 STRATEGY - Uses ETH as primary asset, BTC for SMT divergence
+   *
    * CRITICAL CHANGES TO PREVENT LOOK-AHEAD BIAS:
    * 1. Decision is made at a SPECIFIC time (decisionHour)
    * 2. Only candles BEFORE decision time are used for analysis
    * 3. HTF candles are filtered to only include COMPLETED candles
    * 4. Entry price is at decision time, not end of killzone
    *
-   * @param {Array} dayCandles - All 5m candles for the day
-   * @param {Object} htfCandles - Higher timeframe candles
-   * @param {Array} ethDayCandles - ETH candles for SMT
+   * @param {Array} dayCandles - All 5m ETH candles for the day
+   * @param {Object} htfCandles - Higher timeframe ETH candles
+   * @param {Array} smtDayCandles - BTC candles for SMT divergence
    * @param {number} decisionHour - UTC hour when decision is made (default: 15 = 3PM UTC)
    */
-  simulateDay(dayCandles, htfCandles, ethDayCandles, decisionHour = 15) {
+  simulateDay(dayCandles, htfCandles, smtDayCandles, decisionHour = 15) {
     // STEP 1: Find the decision point candle
     const decisionTimestamp = dayCandles.find(c => {
       const hour = new Date(c.timestamp).getUTCHours();
@@ -146,24 +148,29 @@ export class Backtester {
     }
 
     // STEP 6: Check for liquidity sweep with available candles only
-    // RELAXED: Liquidity sweep is now optional (adds confluence but not mandatory)
+    // BIAS-FREE: Liquidity sweep is now OPTIONAL (adds confluence but doesn't block)
+    // This is more realistic as sweeps are harder to confirm in real-time
     const liquiditySweep = this.liquidity.hasRecentLiquiditySweep(killzoneCandles, expectedDirection);
-    const sweepRequired = CONFIG.ICT?.LIQUIDITY?.SWEEP_REQUIRED !== false ? true : false;
 
-    if (sweepRequired && !liquiditySweep.swept) {
-      return { traded: false, reason: 'No liquidity sweep' };
+    // SWEEP IS NOW OPTIONAL - it adds confluence points but doesn't block trades
+    // Set SWEEP_REQUIRED_STRICT: true in config to require sweeps (not recommended for production)
+    const sweepRequiredStrict = CONFIG.ICT?.LIQUIDITY?.SWEEP_REQUIRED_STRICT || false;
+
+    if (sweepRequiredStrict && !liquiditySweep.swept) {
+      return { traded: false, reason: 'No liquidity sweep (strict mode)' };
     }
 
     // STEP 7: Check for valid entry model
     const fvgEntry = this.fvg.isAtFVGEntry(killzoneCandles, expectedDirection);
     const mmxmAnalysis = this.mmxm.analyzeMMXMCycle(killzoneCandles, expectedDirection);
 
-    // MMXM ONLY MODE: Only trade when MMXM is valid (75% win rate vs 50% for FVG)
-    const mmxmOnlyMode = CONFIG.ENTRY_MODELS?.MMXM_ONLY || false;
+    // FVG-ONLY MODE: Only trade when FVG is valid (75% win rate on ETH vs 47% for MMXM)
+    // This is the recommended mode for ETH13 strategy
+    const fvgOnlyMode = CONFIG.ENTRY_MODELS?.FVG_ONLY || true; // DEFAULT: ON for ETH13
 
-    if (mmxmOnlyMode) {
-      if (!mmxmAnalysis.tradeable) {
-        return { traded: false, reason: 'No MMXM setup (MMXM-only mode)' };
+    if (fvgOnlyMode) {
+      if (!fvgEntry.valid) {
+        return { traded: false, reason: 'No FVG entry (FVG-only mode)' };
       }
     } else {
       if (!fvgEntry.valid && !mmxmAnalysis.tradeable) {
@@ -171,16 +178,16 @@ export class Backtester {
       }
     }
 
-    // STEP 8: SMT check with aligned ETH candles
+    // STEP 8: SMT check with BTC candles (ETH13 uses BTC for SMT divergence)
     let hasSMT = false;
-    const ethAvailable = ethDayCandles.filter(c => c.timestamp <= decisionTimestamp);
-    const ethKillzone = ethAvailable.filter(candle => {
+    const smtAvailable = smtDayCandles.filter(c => c.timestamp <= decisionTimestamp);
+    const smtKillzone = smtAvailable.filter(candle => {
       const hour = new Date(candle.timestamp).getUTCHours();
       return (hour >= 7 && hour <= 10) || (hour >= 13 && hour < decisionHour);
     });
 
-    if (ethKillzone.length === killzoneCandles.length) {
-      const smtCheck = this.smt.checkSMTConfirmation(killzoneCandles, ethKillzone, expectedDirection);
+    if (smtKillzone.length === killzoneCandles.length) {
+      const smtCheck = this.smt.checkSMTConfirmation(killzoneCandles, smtKillzone, expectedDirection);
       hasSMT = smtCheck.confirmed;
     }
 
@@ -231,9 +238,27 @@ export class Backtester {
       return { traded: false, reason: `Low confluence: ${confluence.toFixed(1)} (need ${minConfluence})` };
     }
 
-    // STEP 10: Entry price is at DECISION TIME (not end of day)
-    const entryCandle = availableCandles[availableCandles.length - 1];
-    const entryPrice = entryCandle.close;
+    // STEP 10: Entry price - BIAS-FREE VERSION
+    // CRITICAL FIX: At decision time, we can't trade at the CLOSE price
+    // because we don't know it yet. We trade at the OPEN of the NEXT candle.
+    //
+    // Find the first candle AFTER the decision candle
+    const decisionCandle = availableCandles[availableCandles.length - 1];
+    const nextCandleIndex = dayCandles.findIndex(c => c.timestamp > decisionCandle.timestamp);
+
+    // Use OPEN of next candle if available, otherwise use CLOSE of decision candle
+    // (CLOSE is a fallback but is less realistic)
+    let entryPrice;
+    let entryCandle;
+
+    if (nextCandleIndex !== -1 && nextCandleIndex < dayCandles.length) {
+      entryCandle = dayCandles[nextCandleIndex];
+      entryPrice = entryCandle.open; // OPEN of next candle = realistic entry
+    } else {
+      // Fallback: use decision candle's close (less realistic)
+      entryCandle = decisionCandle;
+      entryPrice = decisionCandle.close;
+    }
 
     // STEP 11: Outcome - did BTC close UP or DOWN vs daily open?
     // This is the ONLY place we use future data (to determine if we won)
@@ -317,14 +342,16 @@ export class Backtester {
   }
 
   /**
-   * Run full backtest (BIAS-FREE VERSION)
+   * Run full backtest (BIAS-FREE VERSION) - ETH13 STRATEGY
    */
   async runBacktest(startDate, endDate, options = {}) {
     const decisionHour = options.decisionHour || CONFIG.BACKTEST?.DECISION_HOUR_UTC || 15;
+    const asset = CONFIG.STRATEGY?.ASSET || 'ETH';
 
     console.log('═══════════════════════════════════════════════════════════════════');
-    console.log('              ICT STRATEGY BACKTEST (BIAS-FREE)                    ');
+    console.log('              ETH13 STRATEGY BACKTEST (BIAS-FREE)                  ');
     console.log('═══════════════════════════════════════════════════════════════════');
+    console.log(`Asset: ${asset}`);
     console.log(`Period: ${startDate} to ${endDate}`);
     console.log(`Decision Hour: ${decisionHour}:00 UTC`);
     console.log(`Slippage Simulation: ${CONFIG.BACKTEST?.SLIPPAGE?.ENABLED ? 'ON' : 'OFF'}`);
@@ -332,6 +359,7 @@ export class Backtester {
     console.log('');
 
     const results = {
+      asset,
       totalDays: 0,
       tradedDays: 0,
       wins: 0,
@@ -346,26 +374,30 @@ export class Backtester {
     };
 
     try {
-      // Fetch historical data
+      // Fetch historical data - ETH13 uses ETH as primary, BTC for SMT
       const startTimestamp = new Date(startDate).getTime();
       const endTimestamp = new Date(endDate).getTime();
 
-      console.log('Fetching BTC 5m data...');
-      const btc5m = await this.fetchHistoricalData('BTC/USDT', '5m', startTimestamp, 50000);
-      console.log(`Fetched ${btc5m.length} candles`);
+      // Calculate required candles: 2 years = 730 days * 24h * 12 (5m candles/hour) = ~210,000
+      const daysRequested = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
+      const candlesNeeded = Math.min(daysRequested * 24 * 12 + 5000, 250000); // +5000 buffer, max 250k
 
-      console.log('Fetching BTC 4h data...');
-      const btc4h = await this.fetchHistoricalData('BTC/USDT', '4h', startTimestamp, 5000);
+      console.log(`Fetching ETH 5m data (${daysRequested} days, ~${candlesNeeded} candles)...`);
+      const eth5m = await this.fetchHistoricalData('ETH/USDT', '5m', startTimestamp, candlesNeeded);
+      console.log(`Fetched ${eth5m.length} candles (${Math.floor(eth5m.length / 288)} days)`);
 
-      console.log('Fetching BTC 1d data...');
-      const btc1d = await this.fetchHistoricalData('BTC/USDT', '1d', startTimestamp, 500);
+      console.log('Fetching ETH 4h data...');
+      const eth4h = await this.fetchHistoricalData('ETH/USDT', '4h', startTimestamp, 5000);
 
-      console.log('Fetching ETH 5m data...');
-      const eth5m = await this.fetchHistoricalData('ETH/USDT', '5m', startTimestamp, 50000);
+      console.log('Fetching ETH 1d data...');
+      const eth1d = await this.fetchHistoricalData('ETH/USDT', '1d', startTimestamp, 500);
 
-      // Group by day
-      const dayGroups = this.groupByDay(btc5m);
-      const ethDayGroups = this.groupByDay(eth5m);
+      console.log('Fetching BTC 5m data (for SMT)...');
+      const btc5m = await this.fetchHistoricalData('BTC/USDT', '5m', startTimestamp, candlesNeeded);
+
+      // Group by day - ETH is primary, BTC is SMT pair
+      const dayGroups = this.groupByDay(eth5m);
+      const smtDayGroups = this.groupByDay(btc5m);
 
       console.log(`\nAnalyzing ${Object.keys(dayGroups).length} days...\n`);
 
@@ -385,14 +417,15 @@ export class Backtester {
         // Use more candles for better swing detection
         const dayStart = candles[0].timestamp;
         const htfCandles = {
-          '4h': btc4h.filter(c => c.timestamp < dayStart).slice(-100), // More 4H candles
-          '1d': btc1d.filter(c => c.timestamp < dayStart).slice(-60)   // More daily candles
+          '4h': eth4h.filter(c => c.timestamp < dayStart).slice(-100), // ETH 4H candles
+          '1d': eth1d.filter(c => c.timestamp < dayStart).slice(-60)   // ETH daily candles
         };
 
-        const ethCandles = ethDayGroups[day] || [];
+        // BTC candles for SMT divergence
+        const smtCandles = smtDayGroups[day] || [];
 
         // Simulate trading decision with explicit decision hour
-        const result = this.simulateDay(candles, htfCandles, ethCandles, decisionHour);
+        const result = this.simulateDay(candles, htfCandles, smtCandles, decisionHour);
 
         if (result.traded) {
           results.tradedDays++;

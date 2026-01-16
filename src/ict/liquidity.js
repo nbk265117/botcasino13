@@ -18,18 +18,27 @@ export class LiquidityAnalysis {
   }
 
   /**
-   * Find equal highs (buy-side liquidity)
+   * Find equal highs (buy-side liquidity) - BIAS-FREE VERSION
    * Equal highs = stop losses from shorts sitting above
+   *
+   * CRITICAL FIX: Exclude the current (last) candle because its high
+   * is not yet finalized at decision time.
+   *
+   * @param {Array} candles - Price candles
+   * @param {boolean} onlineMode - If true, exclude current candle (default: true)
    */
-  findEqualHighs(candles) {
+  findEqualHighs(candles, onlineMode = true) {
     const equalHighs = [];
     const tolerance = this.config.EQUAL_HIGHS_LOWS_TOLERANCE / 100;
     const minTouches = this.config.MIN_LIQUIDITY_POOL_TOUCHES;
 
+    // BIAS FIX: Exclude current candle in online mode
+    const maxIndex = onlineMode ? candles.length - 1 : candles.length;
+
     // Group highs that are within tolerance
     const highGroups = [];
 
-    for (let i = 0; i < candles.length; i++) {
+    for (let i = 0; i < maxIndex; i++) {
       const high = candles[i].high;
       let foundGroup = false;
 
@@ -68,17 +77,26 @@ export class LiquidityAnalysis {
   }
 
   /**
-   * Find equal lows (sell-side liquidity)
+   * Find equal lows (sell-side liquidity) - BIAS-FREE VERSION
    * Equal lows = stop losses from longs sitting below
+   *
+   * CRITICAL FIX: Exclude the current (last) candle because its low
+   * is not yet finalized at decision time.
+   *
+   * @param {Array} candles - Price candles
+   * @param {boolean} onlineMode - If true, exclude current candle (default: true)
    */
-  findEqualLows(candles) {
+  findEqualLows(candles, onlineMode = true) {
     const equalLows = [];
     const tolerance = this.config.EQUAL_HIGHS_LOWS_TOLERANCE / 100;
     const minTouches = this.config.MIN_LIQUIDITY_POOL_TOUCHES;
 
+    // BIAS FIX: Exclude current candle in online mode
+    const maxIndex = onlineMode ? candles.length - 1 : candles.length;
+
     const lowGroups = [];
 
-    for (let i = 0; i < candles.length; i++) {
+    for (let i = 0; i < maxIndex; i++) {
       const low = candles[i].low;
       let foundGroup = false;
 
@@ -173,8 +191,9 @@ export class LiquidityAnalysis {
     const confirmationNeeded = this.config.SWEEP_CONFIRMATION_CANDLES;
 
     // Find liquidity pools from older data (exclude recent candles)
-    const equalHighs = this.findEqualHighs(candles.slice(0, -10));
-    const equalLows = this.findEqualLows(candles.slice(0, -10));
+    // BIAS FIX: Pass onlineMode to child functions
+    const equalHighs = this.findEqualHighs(candles.slice(0, -10), onlineMode);
+    const equalLows = this.findEqualLows(candles.slice(0, -10), onlineMode);
 
     const sweeps = [];
 
@@ -269,12 +288,15 @@ export class LiquidityAnalysis {
   }
 
   /**
-   * Find nearest liquidity targets (where price is likely to go)
+   * Find nearest liquidity targets (where price is likely to go) - BIAS-FREE VERSION
+   *
+   * CRITICAL FIX: Use OPEN price of current candle (known at decision time)
    */
   findNearestLiquidityTargets(candles) {
-    const currentPrice = candles[candles.length - 1].close;
-    const equalHighs = this.findEqualHighs(candles);
-    const equalLows = this.findEqualLows(candles);
+    // BIAS FIX: Use OPEN of current candle instead of CLOSE
+    const currentPrice = candles[candles.length - 1].open;
+    const equalHighs = this.findEqualHighs(candles, true);
+    const equalLows = this.findEqualLows(candles, true);
     const sessions = this.findSessionLiquidity(candles);
 
     const allLiquidity = [
