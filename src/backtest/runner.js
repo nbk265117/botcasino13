@@ -184,6 +184,12 @@ export class Backtester {
       hasSMT = smtCheck.confirmed;
     }
 
+    // SMT REQUIRED filter - blocks trades without SMT confirmation
+    const smtRequired = CONFIG.ICT?.SMT?.REQUIRED || false;
+    if (smtRequired && !hasSMT) {
+      return { traded: false, reason: 'No SMT divergence (SMT required mode)' };
+    }
+
     // STEP 9: Calculate confluence (RELAXED scoring)
     let confluence = 0;
     let confluenceDetails = [];
@@ -219,8 +225,8 @@ export class Backtester {
       confluenceDetails.push('SMT');
     }
 
-    // RELAXED threshold: 2.5 points minimum (was 3, originally 4)
-    const minConfluence = 2.5;
+    // STRICT threshold: Use config value
+    const minConfluence = CONFIG.CONFLUENCE?.MIN_SCORE_TO_TRADE || 7;
     if (confluence < minConfluence) {
       return { traded: false, reason: `Low confluence: ${confluence.toFixed(1)} (need ${minConfluence})` };
     }
