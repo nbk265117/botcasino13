@@ -217,6 +217,27 @@ export const CONFIG = {
     LEVEL: 'info',
     FILE_PATH: './logs/eth13.log',
     CONSOLE: true,
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // FILTERS
+  // ═══════════════════════════════════════════════════════════════════
+  FILTERS: {
+    NEWS: {
+      ENABLED: true,
+      HIGH_IMPACT_EVENTS: ['FOMC', 'CPI', 'NFP', 'PPI'],
+      BLACKOUT_MINUTES_BEFORE: 120,
+      BLACKOUT_MINUTES_AFTER: 60,
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ETH13 SPECIFIC SETTINGS
+  // ═══════════════════════════════════════════════════════════════════
+  ETH13: {
+    TRADING_DAYS: [2, 3, 5],  // Tue, Wed, Fri
+    MIN_CONFLUENCE: 5,
+    FVG_ONLY_MODE: true,
   }
 };
 
