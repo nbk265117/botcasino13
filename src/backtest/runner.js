@@ -27,10 +27,12 @@ import {
   KillzoneDetector
 } from '../ict/index.js';
 import { CONFIG } from '../../config/settings.js';
+import DataManager from '../data/dataManager.js';
 
 export class Backtester {
   constructor() {
     this.exchange = new ccxt.binance({ enableRateLimit: true });
+    this.dataManager = new DataManager();
     this.marketStructure = new MarketStructure();
     this.fvg = new FairValueGap();
     this.liquidity = new LiquidityAnalysis();
@@ -232,8 +234,9 @@ export class Backtester {
       confluenceDetails.push('SMT');
     }
 
-    // STRICT threshold: Use config value
-    const minConfluence = CONFIG.CONFLUENCE?.MIN_SCORE_TO_TRADE || 7;
+    // ETH13 OPTIMIZED: Confluence threshold = 5 (was 4)
+    // Based on analysis: 5-6 confluence = 65.2% vs 4-5 = 56.5%
+    const minConfluence = CONFIG.ETH13?.MIN_CONFLUENCE || 5;
     if (confluence < minConfluence) {
       return { traded: false, reason: `Low confluence: ${confluence.toFixed(1)} (need ${minConfluence})` };
     }
@@ -374,26 +377,8 @@ export class Backtester {
     };
 
     try {
-      // Fetch historical data - ETH13 uses ETH as primary, BTC for SMT
-      const startTimestamp = new Date(startDate).getTime();
-      const endTimestamp = new Date(endDate).getTime();
-
-      // Calculate required candles: 2 years = 730 days * 24h * 12 (5m candles/hour) = ~210,000
-      const daysRequested = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
-      const candlesNeeded = Math.min(daysRequested * 24 * 12 + 5000, 250000); // +5000 buffer, max 250k
-
-      console.log(`Fetching ETH 5m data (${daysRequested} days, ~${candlesNeeded} candles)...`);
-      const eth5m = await this.fetchHistoricalData('ETH/USDT', '5m', startTimestamp, candlesNeeded);
-      console.log(`Fetched ${eth5m.length} candles (${Math.floor(eth5m.length / 288)} days)`);
-
-      console.log('Fetching ETH 4h data...');
-      const eth4h = await this.fetchHistoricalData('ETH/USDT', '4h', startTimestamp, 5000);
-
-      console.log('Fetching ETH 1d data...');
-      const eth1d = await this.fetchHistoricalData('ETH/USDT', '1d', startTimestamp, 500);
-
-      console.log('Fetching BTC 5m data (for SMT)...');
-      const btc5m = await this.fetchHistoricalData('BTC/USDT', '5m', startTimestamp, candlesNeeded);
+      // Load data from cache (or fetch if not cached)
+      const { eth5m, eth4h, eth1d, btc5m } = await this.dataManager.getETH13Data(startDate, endDate);
 
       // Group by day - ETH is primary, BTC is SMT pair
       const dayGroups = this.groupByDay(eth5m);
@@ -407,9 +392,19 @@ export class Backtester {
       let peakCapital = simulatedCapital;
 
       for (const [day, candles] of Object.entries(dayGroups)) {
-        // Skip weekends
         const dayDate = new Date(day);
-        if (dayDate.getUTCDay() === 0 || dayDate.getUTCDay() === 6) continue;
+        const dayOfWeek = dayDate.getUTCDay();
+
+        // Skip weekends
+        if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+
+        // ETH13 OPTIMIZED FILTER: Trade Tuesday, Wednesday (priority) + Friday (backup)
+        // Based on analysis: Tue=77.8%, Wed=80.0%, Fri=76.9% vs Mon=42.9%, Thu=55.6%
+        // Friday is a valid backup if Tue/Wed are missed
+        const tradingDays = CONFIG.ETH13?.TRADING_DAYS || [2, 3, 5]; // Tue, Wed, Fri
+        if (!tradingDays.includes(dayOfWeek)) continue;
+
+        // NEVER trade: Monday (42.9%), Thursday (55.6%), Weekend (no forex sessions)
 
         results.totalDays++;
 
